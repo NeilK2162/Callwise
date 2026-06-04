@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, update
 
@@ -24,8 +24,8 @@ from callwise.domain.idempotency import advance_call_status
 from callwise.locks import redlock
 from callwise.logging import configure_logging, get_logger
 from callwise.providers.telephony.factory import get_telephony_provider
-from callwise.reliability.outbox import dispatch_outbox
 from callwise.redis_pool import get_redis
+from callwise.reliability.outbox import dispatch_outbox
 
 log = get_logger(__name__)
 
@@ -34,7 +34,7 @@ _NON_TERMINAL = (CallStatus.dialing, CallStatus.ringing, CallStatus.in_progress)
 
 async def _recover_orphan_contacts(db) -> int:
     """Contacts stuck in_progress with an expired lease and no live session → queued."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     live = (
         select(CallSession.id)
         .where(
@@ -58,7 +58,7 @@ async def _recover_orphan_contacts(db) -> int:
 
 async def _sweep_stale_sessions(db, stale_ttl: int) -> int:
     """Sessions stuck non-terminal past TTL → query provider for true state and close."""
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_ttl)
+    cutoff = datetime.now(UTC) - timedelta(seconds=stale_ttl)
     stale = list(
         await db.scalars(
             select(CallSession)
@@ -124,7 +124,7 @@ async def run() -> None:
                     log.exception("reconciler_tick_failed")
         try:
             await asyncio.wait_for(stop.wait(), timeout=settings.reconciler_interval_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
     log.info("reconciler_stopped")
 

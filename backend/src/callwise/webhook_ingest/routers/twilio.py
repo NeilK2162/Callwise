@@ -17,7 +17,10 @@ router = APIRouter()
 async def twilio_webhook(request: Request, db: DbSession, queue: QueueDep) -> dict:
     raw = await request.body()
     signature = request.headers.get("x-twilio-signature")
-    if not verify_twilio(raw, signature, str(request.url)):
+    # Validate against the exact public URL we configured as the StatusCallback (behind a
+    # proxy, request.url may be the internal http URL and fail validation).
+    canonical_url = f"{get_settings().base_url}/api/v2/webhooks/twilio"
+    if not verify_twilio(raw, signature, canonical_url):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid signature")
 
     form = await request.form()

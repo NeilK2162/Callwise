@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
@@ -64,7 +64,7 @@ async def start_campaign(campaign_id: uuid.UUID, db: DbSession, user: CurrentUse
         campaign.meta = {
             **campaign.meta,
             "start_locked": True,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
         }
         campaign.status = CampaignStatus.running
         await db.commit()

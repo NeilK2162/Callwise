@@ -11,12 +11,14 @@ import uuid
 
 from sqlalchemy import update
 
+from callwise.compliance import within_calling_window
 from callwise.config import get_settings
 from callwise.db.base import get_sessionmaker
 from callwise.db.enums import CallDirection, CallStatus, ContactStatus
-from callwise.db.models import Campaign, CallSession, Contact
+from callwise.db.models import CallSession, Campaign, Contact
 from callwise.domain.idempotency import advance_call_status, claim_contact
 from callwise.domain.snapshots import create_snapshot
+from callwise.domain.suppression import is_suppressed
 from callwise.governors.concurrency import ConcurrencyGovernor, ConcurrencyLimitReached
 from callwise.governors.rate_limiter import ProviderRateLimited, ProviderRateLimiter
 from callwise.logging import bind_call_context, get_logger
@@ -77,6 +79,40 @@ async def handle_dial(msg: Message) -> None:
         )
         if claimed is None:
             return  # someone else won, or attempts exhausted — skip silently (idempotent)
+
+        # Compliance gates (PRD §14.2, defense-in-depth — orchestrator also filters).
+        if await is_suppressed(db, campaign.owner_id, claimed.phone_e164):
+            # On the do-not-contact list (opt-out anywhere) → terminal, never retry.
+            await db.execute(
+                update(Contact)
+                .where(Contact.id == claimed.id)
+                .values(
+                    status=ContactStatus.do_not_contact,
+                    last_outcome="suppressed",
+                    claimed_by=None,
+                    lease_expires_at=None,
+                )
+            )
+            await db.commit()
+            return
+        contact = await db.get(Contact, claimed.id)
+        if campaign.provider != "mock" and contact is not None and not within_calling_window(
+            contact, campaign
+        ):
+            # Outside the legal calling window → defer (release without burning an attempt).
+            await db.execute(
+                update(Contact)
+                .where(Contact.id == claimed.id)
+                .values(
+                    status=ContactStatus.queued,
+                    claimed_by=None,
+                    claimed_at=None,
+                    lease_expires_at=None,
+                    attempt_count=Contact.attempt_count - 1,
+                )
+            )
+            await db.commit()
+            return
 
         snapshot = await create_snapshot(
             db,

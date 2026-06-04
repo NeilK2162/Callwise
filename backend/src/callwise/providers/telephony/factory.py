@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from callwise.config import Settings, TelephonyProvider as TelephonyProviderName, get_settings
+from callwise.config import Settings, get_settings
+from callwise.config import TelephonyProvider as TelephonyProviderName
 from callwise.providers.telephony.base import TelephonyProvider
 from callwise.providers.telephony.mock import MockTelephonyProvider
 

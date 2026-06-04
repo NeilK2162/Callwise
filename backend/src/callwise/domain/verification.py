@@ -49,7 +49,14 @@ CONFIDENCE_AUTO_APPLY_THRESHOLD = 0.6
 
 
 def build_verify_prompt(*, expected: dict, turns: list[dict], language: str) -> str:
-    lines = [f"LANGUAGE: {language}", "", "EXPECTED FIELDS (this customer only):", str(expected), "", "TRANSCRIPT (this call only):"]
+    lines = [
+        f"LANGUAGE: {language}",
+        "",
+        "EXPECTED FIELDS (this customer only):",
+        str(expected),
+        "",
+        "TRANSCRIPT (this call only):",
+    ]
     for turn in turns:
         lines.append(f"  [{turn.get('role', '?')}] {turn.get('text', '')}")
     if not turns:

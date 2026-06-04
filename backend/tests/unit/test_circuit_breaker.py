@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 
@@ -48,7 +47,7 @@ async def test_failures_outside_window_do_not_accumulate():
     cb = CircuitBreaker("exotel", fail_threshold=2, window_s=0.05, cool_down_s=60)
     with pytest.raises(RuntimeError):
         await cb.call(_boom)
-    time.sleep(0.06)
+    await asyncio.sleep(0.06)
     with pytest.raises(RuntimeError):
         await cb.call(_boom)
     # One failure pruned — still closed.

@@ -332,3 +332,23 @@ class IngestJob(Base):
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _ts(default_now=True)
     updated_at: Mapped[datetime] = _ts(default_now=True)
+
+
+class Suppression(Base):
+    """Do-not-contact / DNC suppression list (PRD §14.2, edge cases #42, #43).
+
+    Honored across ALL of an owner's campaigns: an opt-out on one call suppresses the
+    number everywhere. Checked pre-dial in the dialer."""
+
+    __tablename__ = "suppressions"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "phone_e164", name="uq_suppression_owner_phone"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_col(primary_key=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    phone_e164: Mapped[str] = mapped_column(String(20), index=True)
+    reason: Mapped[str] = mapped_column(String(40), default="opt_out")
+    created_at: Mapped[datetime] = _ts(default_now=True)

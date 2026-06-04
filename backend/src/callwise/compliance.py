@@ -45,7 +45,12 @@ def within_calling_window(
 def is_callable_now(
     contact: Contact, campaign: Campaign, *, now: datetime | None = None
 ) -> bool:
-    """True iff this contact may be dialed right now (not opted-out, inside window)."""
+    """True iff this contact may be dialed right now (not opted-out, inside window).
+
+    The simulated `mock` provider skips the legal calling window so local/dev demos work
+    at any hour; real providers always enforce it."""
     if contact.status == ContactStatus.do_not_contact:
         return False
+    if campaign.provider == "mock":
+        return True
     return within_calling_window(contact, campaign, now=now)

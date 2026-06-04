@@ -6,7 +6,7 @@ endpoint assembles the query cards that are the centerpiece of the dashboard.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select
@@ -35,7 +35,7 @@ def _owned_session_filter(stmt, user: CurrentUser):
 
 @router.get("/summary", response_model=ReportSummary)
 async def summary(db: DbSession, user: CurrentUser) -> ReportSummary:
-    since = datetime.now(timezone.utc) - timedelta(days=1)
+    since = datetime.now(UTC) - timedelta(days=1)
     base = (
         select(CallSession)
         .join(Contact, Contact.id == CallSession.contact_id)

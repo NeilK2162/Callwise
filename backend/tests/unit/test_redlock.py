@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 from redis.asyncio import Redis
 
 from callwise.locks import redlock

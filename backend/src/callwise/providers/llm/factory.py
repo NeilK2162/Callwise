@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from callwise.config import LLMProvider as LLMProviderName, Settings, get_settings
+from callwise.config import LLMProvider as LLMProviderName
+from callwise.config import Settings, get_settings
 from callwise.providers.llm.base import LLMProvider
 from callwise.providers.llm.mock import MockLLMProvider
 

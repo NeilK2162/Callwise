@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from callwise.config import (
     ConversationProvider as ConversationProviderName,
+)
+from callwise.config import (
     Settings,
     get_settings,
 )

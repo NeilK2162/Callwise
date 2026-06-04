@@ -24,6 +24,14 @@ def _constant_time_eq(a: str, b: str) -> bool:
     return hmac.compare_digest(a, b)
 
 
+def verify_hmac_sha256(raw_body: bytes, signature: str, secret: str) -> bool:
+    """Generic bare-body HMAC-SHA256 check (for providers that sign the raw body).
+    Accepts either a bare hex digest or a `t=...,v0=<hex>`-prefixed signature."""
+    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    provided = signature.split("v0=")[-1].split(",")[0].strip() if signature else ""
+    return _constant_time_eq(expected, provided)
+
+
 # ElevenLabs signs webhooks Stripe-style: header `ElevenLabs-Signature: t=<unix>,v0=<hex>`,
 # where <hex> = HMAC-SHA256(secret, f"{t}.{raw_body}"). Timestamp tolerance is 30 minutes.
 # Refs: elevenlabs.io/docs/.../post-call-webhooks (SDK construct_event does the same).
@@ -66,13 +74,26 @@ def verify_elevenlabs(raw_body: bytes, signature_header: str | None) -> bool:
 
 
 def verify_twilio(raw_body: bytes, signature_header: str | None, url: str) -> bool:
-    # TODO: Twilio uses HMAC-SHA1 over the full URL + sorted POST params, base64-encoded.
-    #       Implement with the auth token; reject in non-dev until done.
+    """Validate X-Twilio-Signature for a form-encoded callback (Twilio docs §Security):
+    base64(HMAC-SHA1(auth_token, url + concat(sorted POST params as name+value))).
+    `url` must be the exact public webhook URL Twilio called."""
+    import base64
+    from urllib.parse import parse_qsl
+
     s = get_settings()
-    if s.app_env == "dev":
-        log.warning("webhook_hmac_skipped_dev", provider="twilio")
-        return True
-    return False
+    if not s.twilio_auth_token:
+        if s.app_env == "dev":
+            log.warning("webhook_hmac_skipped_dev", provider="twilio")
+            return True
+        return False
+    if not signature_header:
+        return False
+
+    params = parse_qsl(raw_body.decode("utf-8"), keep_blank_values=True)
+    signed = url + "".join(f"{k}{v}" for k, v in sorted(params))
+    digest = hmac.new(s.twilio_auth_token.encode(), signed.encode("utf-8"), hashlib.sha1).digest()
+    expected = base64.b64encode(digest).decode()
+    return _constant_time_eq(expected, signature_header)
 
 
 def within_timestamp_tolerance(event_ts: float) -> bool:

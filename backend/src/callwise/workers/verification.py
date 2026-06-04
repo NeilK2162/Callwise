@@ -25,10 +25,10 @@ from callwise.db.models import (
 )
 from callwise.domain.idempotency import advance_call_status, enqueue_outbox, upsert_verification
 from callwise.domain.snapshots import load_snapshot
+from callwise.domain.suppression import suppress
 from callwise.domain.verification import verify_transcript
 from callwise.events import publish_card_event
 from callwise.logging import bind_call_context, get_logger
-from callwise.redis_pool import get_redis
 from callwise.observability.metrics import DIALS_FAILED, VERIFICATION_CONFIDENCE
 from callwise.orchestration import enqueue_single_dial
 from callwise.providers.conversation.elevenlabs import session_id_from_payload
@@ -36,6 +36,7 @@ from callwise.providers.conversation.factory import get_conversation_provider
 from callwise.providers.llm.factory import get_llm_provider
 from callwise.queue.base import Message
 from callwise.queue.factory import get_queue
+from callwise.redis_pool import get_redis
 from callwise.reliability.retry import RetryClass, classify_reason
 from callwise.workers.base import StreamWorker, run_worker
 
@@ -108,7 +109,7 @@ async def _resolve_session(db, provider: str, raw: dict) -> CallSession | None:
         sid = raw.get("CustomField")
         if not sid:
             return await _by_provider_call_id(db, raw.get("CallSid"))
-    elif provider == "mock":
+    elif provider in ("mock", "livekit"):
         sid = raw.get("call_session_id")
     else:  # twilio and others correlate by their call id
         return await _by_provider_call_id(db, raw.get("CallSid") or raw.get("provider_call_id"))
@@ -137,6 +138,9 @@ def _normalize_status(provider: str, raw: dict) -> str:
             return "voicemail" if answered_by == "Machine" else "answered"
         return status.value
     if provider == "twilio":
+        call_status = str(raw.get("CallStatus", "")).lower()
+        if call_status == "completed" and str(raw.get("AnsweredBy", "")).startswith("machine"):
+            return "voicemail"  # AMD detected an answering machine
         twilio_map = {
             "completed": "answered",
             "no-answer": "no_answer",
@@ -144,7 +148,7 @@ def _normalize_status(provider: str, raw: dict) -> str:
             "failed": "failed",
             "canceled": "canceled",
         }
-        return twilio_map.get(str(raw.get("CallStatus", "")).lower(), "failed")
+        return twilio_map.get(call_status, "failed")
     # mock posts our own status values directly.
     return str(raw.get("status", "failed"))
 
@@ -181,7 +185,7 @@ async def handle_verification(msg: Message) -> None:
 
         # Dispatch: a transcription event (conversation provider) runs the LLM pipeline;
         # a status callback (telephony provider) just advances state / handles retries.
-        is_transcription = provider == "elevenlabs" or (
+        is_transcription = provider in ("elevenlabs", "livekit") or (
             provider == "mock" and raw.get("status") == CallStatus.completed.value
         )
         if not is_transcription:
@@ -254,17 +258,27 @@ async def handle_verification(msg: Message) -> None:
             result=result,
         )
 
-        # 3) Apply outcome tags to the contact (idempotent write).
+        # 3) Apply outcome tags to the contact (idempotent write). An opt-out is terminal
+        # and is suppressed across ALL of the owner's campaigns (PRD §14.2, edge #43).
+        opted_out = outcome is VerificationOutcome.opt_out
+        contact = await db.get(Contact, sess.contact_id)
+        owner_id = await db.scalar(
+            select(Campaign.owner_id)
+            .join(Contact, Contact.campaign_id == Campaign.id)
+            .where(Contact.id == sess.contact_id)
+        )
         await db.execute(
             update(Contact)
             .where(Contact.id == sess.contact_id)
             .values(
-                status=ContactStatus.completed,
+                status=ContactStatus.do_not_contact if opted_out else ContactStatus.completed,
                 last_outcome=outcome.value,
                 outcome_tags={"outcome": outcome.value, "confidence": confidence,
                               "extracted": result.get("extracted", {})},
             )
         )
+        if opted_out and owner_id is not None and contact is not None:
+            await suppress(db, owner_id, contact.phone_e164, reason="opt_out")
 
         # Emit the domain event exactly-once for downstream consumers.
         await enqueue_outbox(
@@ -277,11 +291,6 @@ async def handle_verification(msg: Message) -> None:
         log.info("call_verified", outcome=outcome.value, confidence=confidence)
 
         # Push a live update so the dashboard feed updates in real time (PRD §18.1).
-        owner_id = await db.scalar(
-            select(Campaign.owner_id)
-            .join(Contact, Contact.campaign_id == Campaign.id)
-            .where(Contact.id == sess.contact_id)
-        )
         if owner_id is not None:
             await publish_card_event(
                 get_redis(),

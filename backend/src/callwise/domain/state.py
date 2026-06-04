@@ -13,7 +13,7 @@ other's state. There is no shared mutable structure across sessions.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -27,7 +27,7 @@ class ConversationState(BaseModel):
     turn_count: int = 0
     last_customer_utterance: str | None = None
     reprompt_count: int = 0
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 def _key(call_session_id: uuid.UUID) -> str:

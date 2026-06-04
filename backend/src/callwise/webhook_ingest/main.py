@@ -17,7 +17,7 @@ from callwise.config import get_settings
 from callwise.logging import configure_logging, get_logger
 from callwise.observability.tracing import setup_tracing
 from callwise.queue.factory import get_queue
-from callwise.webhook_ingest.routers import context, elevenlabs, exotel, mock, twilio
+from callwise.webhook_ingest.routers import context, elevenlabs, exotel, livekit, mock, twilio
 
 log = get_logger(__name__)
 
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(elevenlabs.router, prefix="/api/v2", tags=["elevenlabs"])
     app.include_router(exotel.router, prefix="/api/v2", tags=["exotel"])
     app.include_router(twilio.router, prefix="/api/v2", tags=["twilio"])
+    app.include_router(livekit.router, prefix="/api/v2", tags=["livekit"])
     app.include_router(context.router, prefix="/api/v2", tags=["context"])
     if settings.app_env == "dev":
         app.include_router(mock.router, prefix="/api/v2", tags=["mock"])

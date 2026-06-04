@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -97,13 +97,19 @@ class Settings(BaseSettings):
     livekit_url: str | None = None
     livekit_api_key: str | None = None
     livekit_api_secret: str | None = None
+    livekit_agent_name: str = "callwise-agent"
+    soniox_api_key: str | None = None  # Soniox STT (LiveKit path); plugin reads SONIOX_API_KEY
 
     # --- LLM creds ---
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None
     azure_openai_deployment: str | None = None
+    azure_openai_api_version: str = "2024-08-01-preview"
     openai_api_key: str | None = None
+    openai_model: str = "gpt-4o-2024-08-06"  # snapshot supporting Structured Outputs
+    openai_summarize_model: str = "gpt-4o-mini"
     anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-4-5"
 
     # --- Webhook security ---
     webhook_timestamp_tolerance_seconds: int = 300

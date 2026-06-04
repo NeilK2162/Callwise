@@ -23,7 +23,7 @@ Cursor MCP servers) when implementing adapters, webhooks, or ops runbooks.
 | Vendor | Role | Status | Config / code | Documentation |
 |--------|------|--------|---------------|---------------|
 | **Exotel** | India PSTN, call-status webhooks, signed call-context for ConvAI | **Live** | `TELEPHONY_PROVIDER=exotel`, `providers/telephony/exotel.py`, `webhook_ingest/routers/exotel.py`, `context.py` | https://developer.exotel.com/ |
-| **Twilio** | PSTN, status callbacks | **Live** (HMAC verify TODO in non-dev) | `TELEPHONY_PROVIDER=twilio`, `providers/telephony/twilio.py`, `webhook_ingest/routers/twilio.py` | https://www.twilio.com/docs |
+| **Twilio** | PSTN, calls.create + AMD, status callbacks | **Live** | `TELEPHONY_PROVIDER=twilio`, `providers/telephony/twilio.py`, `webhook_ingest/routers/twilio.py` | https://www.twilio.com/docs · **Twilio MCP + `twilio-developer-kit` plugin** |
 | **Plivo** | PSTN (pluggable) | **Planned** | `TelephonyProvider.plivo` in `config.py` only | https://www.plivo.com/docs/ |
 | **Telnyx** | PSTN (pluggable) | **Planned** | `TelephonyProvider.telnyx` in `config.py` only | https://developers.telnyx.com/ |
 | **Mock** | Local/dev simulated dial | **Live** | `TELEPHONY_PROVIDER=mock` (compose default) | — |
@@ -36,12 +36,13 @@ Optional Python extra: `twilio` (`pyproject.toml` → `[project.optional-depende
 
 | Vendor | Role | Status | Config / code | Documentation |
 |--------|------|--------|---------------|---------------|
-| **ElevenLabs** | ConvAI (SIP), post-call webhooks (transcription / audio / failure) | **Live** | `CONVERSATION_PROVIDER=elevenlabs`, `providers/conversation/elevenlabs.py`, `webhook_ingest/routers/elevenlabs.py` | https://elevenlabs.io/docs |
-| **LiveKit** | Real-time agent rooms (full-control path) | **Stub** | `CONVERSATION_PROVIDER=livekit`, `providers/conversation/livekit.py` | https://docs.livekit.io/ |
-| **Soniox** | STT on the LiveKit path (PRD §5.4) | **Planned** | Referenced in `livekit.py` / `conversation/base.py` comments only | https://soniox.com/docs |
+| **ElevenLabs** | ConvAI (SIP), post-call webhooks (transcription / audio / failure), signed HMAC | **Live** | `CONVERSATION_PROVIDER=elevenlabs`, `providers/conversation/elevenlabs.py`, `webhook_ingest/routers/elevenlabs.py` | https://elevenlabs.io/docs |
+| **LiveKit** | Real-time agent (Soniox STT → LLM → ElevenLabs TTS), full-control path | **Live** | `CONVERSATION_PROVIDER=livekit`, `providers/conversation/livekit.py` + `livekit_agent.py`, `webhook_ingest/routers/livekit.py` | https://docs.livekit.io/ · **LiveKit MCP** |
+| **Soniox** | STT on the LiveKit path (PRD §5.4) | **Live** | LiveKit plugin in `livekit_agent.py`, `SONIOX_API_KEY` | https://soniox.com/docs · **Soniox MCP** |
 | **Mock** | Simulated conversation | **Live** | `CONVERSATION_PROVIDER=mock` (compose default) | — |
 
-Optional Python extra: `elevenlabs` (`pyproject.toml` → `conversation`).
+Optional Python extra: `conversation` → `livekit-agents[soniox,elevenlabs,silero,openai]` (`pyproject.toml`).
+The ElevenLabs ConvAI path needs no SDK — its webhooks are parsed + HMAC-verified directly.
 
 **LiveKit stack (when built):** Soniox STT → LLM → ElevenLabs TTS inside a ScriptEngine FSM;
 mutable `ConversationState` checkpointed to Redis (`domain/state.py`).
@@ -52,9 +53,9 @@ mutable `ConversationState` checkpointed to Redis (`domain/state.py`).
 
 | Vendor | Role | Status | Config / code | Documentation |
 |--------|------|--------|---------------|---------------|
-| **Azure OpenAI** | Default production LLM | **Stub** | `LLM_PROVIDER=azure_openai`, `providers/llm/azure_openai.py` | https://learn.microsoft.com/azure/ai-services/openai/ |
-| **OpenAI** | Alternative LLM | **Stub** | `LLM_PROVIDER=openai`, `providers/llm/openai.py` | https://platform.openai.com/docs |
-| **Anthropic** | Alternative LLM | **Stub** | `LLM_PROVIDER=anthropic`, `providers/llm/anthropic.py` | https://docs.anthropic.com/ |
+| **Azure OpenAI** | Default production LLM (Structured Outputs) | **Live** | `LLM_PROVIDER=azure_openai`, `providers/llm/azure_openai.py`, `_openai_common.py` | https://platform.openai.com/docs · **OpenAI MCP** |
+| **OpenAI** | Alternative LLM (Structured Outputs) | **Live** | `LLM_PROVIDER=openai`, `providers/llm/openai.py`, `_openai_common.py` | https://platform.openai.com/docs · **OpenAI MCP** |
+| **Anthropic** | Alternative LLM | **Stub** | `LLM_PROVIDER=anthropic`, `providers/llm/anthropic.py` | https://docs.anthropic.com/ · `claude-api` skill |
 | **Mock** | Deterministic verification in dev | **Live** | `LLM_PROVIDER=mock` (compose default) | — |
 
 Optional Python extras: `openai`, `anthropic` (`pyproject.toml` → `llm`).
@@ -166,23 +167,21 @@ Rate-limit defaults per provider: `RATE_LIMIT_EXOTEL`, `RATE_LIMIT_TWILIO`, `RAT
 
 ---
 
-## Suggested Cursor MCP / doc index priority
+## Documentation MCP connectors (used to implement the adapters)
 
-When adding documentation MCP servers, prioritize vendors that are **Live** or **next on
-the rollout** (PRD §17):
+These vendor doc MCP servers are **connected** and were used as the source of truth for the
+adapters in this repo:
 
-1. **Exotel** — telephony + webhooks + India context bridge  
-2. **ElevenLabs** — ConvAI + signed webhooks  
-3. **Twilio** — telephony + request signature validation  
-4. **Azure OpenAI** (or OpenAI) — verification JSON schema  
-5. **Redis** — Streams consumer groups, Lua governors  
-6. **AWS S3** — recordings and presigned URLs  
-7. **LiveKit** + **Soniox** — when implementing the full-control path  
+| Connector | Backs | Used for |
+|---|---|---|
+| **Twilio MCP** (`twilio__search` / `twilio__retrieve`) + `twilio-developer-kit` plugin | Twilio | `Calls.create` params (AMD, StatusCallbackEvent, TimeLimit) + `X-Twilio-Signature` scheme |
+| **OpenAI MCP** (`search_openai_docs` / `fetch_openai_doc`) | OpenAI / Azure OpenAI | Structured Outputs (`response_format=json_schema`), refusals, prompt caching |
+| **LiveKit MCP** (`docs_search` / `get_pages`) | LiveKit | `AgentSession` pipeline, plugin wiring, telephony/SIP |
+| **Soniox MCP** (`soniox_*`) | Soniox | `soniox.STT(STTOptions(model="stt-rt-v4"))` config |
+| WebFetch (no MCP) | Exotel, ElevenLabs | `Calls/connect.json`, `post_call_transcription` payload + HMAC |
 
-Lower priority until wired: Plivo, Telnyx, Anthropic-only path, KEDA, PgBouncer tuning.
-
-**Note:** A workspace MCP such as `user-docs.sarvam.ai` is not used by this repository unless
-you add Sarvam as a future STT/TTS/LLM provider.
+Not backed by an MCP yet (implement from web docs when wired): Plivo, Telnyx, Anthropic
+(use the `claude-api` skill), AWS S3 presign, KEDA, PgBouncer tuning.
 
 ---
 

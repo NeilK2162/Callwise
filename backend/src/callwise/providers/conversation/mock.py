@@ -23,7 +23,7 @@ _SCENARIOS: dict[str, tuple[list[dict], str]] = {
     "callback_needed": (
         [
             {"role": "agent", "text": "Bright Smile Dental, how can I help?", "ts": 0},
-            {"role": "customer", "text": "I want to reschedule but I'm busy now. Can you call me back tomorrow morning?", "ts": 5},
+            {"role": "customer", "text": "I'm busy now — can you call me back tomorrow morning?", "ts": 5},
             {"role": "agent", "text": "Of course — we'll call you back tomorrow morning.", "ts": 10},
         ],
         "Customer requested a callback tomorrow morning to reschedule.",

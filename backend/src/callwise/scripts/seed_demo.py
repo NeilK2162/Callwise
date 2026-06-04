@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -86,7 +86,7 @@ async def seed() -> None:
         db.add(campaign)
         await db.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i, row in enumerate(_DEMO):
             contact = Contact(
                 campaign_id=campaign.id,
