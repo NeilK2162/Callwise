@@ -14,7 +14,7 @@ from sqlalchemy import select, update
 
 from callwise.config import get_settings
 from callwise.db.base import get_sessionmaker
-from callwise.db.enums import CallStatus, ContactStatus
+from callwise.db.enums import CallStatus, ContactStatus, VerificationOutcome
 from callwise.db.models import (
     CallSession,
     Contact,
@@ -106,7 +106,10 @@ async def handle_verification(msg: Message) -> None:
         )
 
         confidence = float(result.get("confidence", 0.0))
-        outcome = result.get("outcome", "undetermined")
+        try:
+            outcome = VerificationOutcome(result.get("outcome", "undetermined"))
+        except ValueError:
+            outcome = VerificationOutcome.undetermined
         VERIFICATION_CONFIDENCE.observe(confidence)
 
         await upsert_verification(
@@ -126,8 +129,8 @@ async def handle_verification(msg: Message) -> None:
             .where(Contact.id == sess.contact_id)
             .values(
                 status=ContactStatus.completed,
-                last_outcome=outcome,
-                outcome_tags={"outcome": outcome, "confidence": confidence,
+                last_outcome=outcome.value,
+                outcome_tags={"outcome": outcome.value, "confidence": confidence,
                               "extracted": result.get("extracted", {})},
             )
         )
@@ -137,10 +140,10 @@ async def handle_verification(msg: Message) -> None:
             db,
             aggregate_id=sess.id,
             event_type="call_verified",
-            payload={"outcome": outcome, "confidence": confidence},
+            payload={"outcome": outcome.value, "confidence": confidence},
         )
         await db.commit()
-        log.info("call_verified", outcome=outcome, confidence=confidence)
+        log.info("call_verified", outcome=outcome.value, confidence=confidence)
 
 
 def main() -> None:

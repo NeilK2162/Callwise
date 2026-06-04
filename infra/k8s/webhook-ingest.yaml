@@ -1,0 +1,54 @@
+# Webhook-ingest API — HPA on RPS, 2–20 replicas (PRD §15.1).
+# Separate deployment so provider bursts never starve heavy report queries.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-ingest
+  labels: { app: webhook-ingest }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: webhook-ingest }
+  template:
+    metadata:
+      labels: { app: webhook-ingest }
+    spec:
+      containers:
+        - name: webhook-ingest
+          image: callwise/backend:latest
+          command: ["uv", "run", "uvicorn", "callwise.webhook_ingest.main:app", "--host", "0.0.0.0", "--port", "8001"]
+          ports: [{ containerPort: 8001 }]
+          envFrom:
+            - configMapRef: { name: callwise-config }
+            - secretRef: { name: callwise-secrets }
+          readinessProbe:
+            httpGet: { path: /api/v2/health, port: 8001 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v2/health, port: 8001 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-ingest
+spec:
+  selector: { app: webhook-ingest }
+  ports: [{ port: 80, targetPort: 8001 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: webhook-ingest
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: webhook-ingest }
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }

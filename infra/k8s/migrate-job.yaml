@@ -1,0 +1,19 @@
+# Pre-deploy migration Job (PRD §15.5). Run `alembic upgrade head` as a K8s Job before
+# rolling out new app versions. Alembic uses DATABASE_URL_DIRECT (bypasses PgBouncer) and
+# takes an advisory lock so concurrent deploys serialize.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: callwise-migrate
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: callwise/backend:latest
+          command: ["uv", "run", "alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef: { name: callwise-config }
+            - secretRef: { name: callwise-secrets }

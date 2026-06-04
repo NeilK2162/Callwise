@@ -24,3 +24,12 @@ def test_normalize_rejects_empty():
 def test_mask_hides_middle():
     masked = mask_e164("+919876543210")
     assert masked.startswith("+91") and masked.endswith("3210") and "·" in masked
+
+
+def test_mask_short_number_is_fully_obscured():
+    assert mask_e164("+12") == "···"
+
+
+def test_normalize_rejects_none():
+    with pytest.raises(InvalidPhoneNumber):
+        normalize_e164(None)  # type: ignore[arg-type]

@@ -1,0 +1,26 @@
+# Reconciler / sweeper — fixed replicas, leader-elected (singleton work via a Redis lock,
+# PRD §15.1). Not autoscaled; it runs a periodic sweep + outbox dispatch.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reconciler
+  labels: { app: reconciler }
+spec:
+  replicas: 2 # one leads, the other is a warm standby (lock decides who sweeps)
+  selector:
+    matchLabels: { app: reconciler }
+  template:
+    metadata:
+      labels: { app: reconciler }
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: reconciler
+          image: callwise/backend:latest
+          command: ["uv", "run", "python", "-m", "callwise.workers.reconciler"]
+          envFrom:
+            - configMapRef: { name: callwise-config }
+            - secretRef: { name: callwise-secrets }
+          resources:
+            requests: { cpu: "100m", memory: "192Mi" }
+            limits: { cpu: "500m", memory: "384Mi" }

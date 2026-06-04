@@ -25,3 +25,9 @@ def test_classify_5xx_is_retryable():
 
 def test_classify_timeout_is_retryable():
     assert classify_error(TimeoutError()) is RetryClass.retryable
+
+
+def test_classify_provider_rate_limited_error_is_retryable():
+    from callwise.providers.errors import ProviderRateLimitedError
+
+    assert classify_error(ProviderRateLimitedError("slow down")) is RetryClass.retryable

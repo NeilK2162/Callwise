@@ -1,0 +1,44 @@
+# Verification workers — autoscaled by Redis Stream lag via KEDA, 2–40 replicas (PRD §15.1).
+# Sharded away from dialing so an LLM backlog never slows the dial loop, and vice versa.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verification-worker
+  labels: { app: verification-worker }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: verification-worker }
+  template:
+    metadata:
+      labels: { app: verification-worker }
+    spec:
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: verification-worker
+          image: callwise/backend:latest
+          command: ["uv", "run", "python", "-m", "callwise.workers.verification"]
+          envFrom:
+            - configMapRef: { name: callwise-config }
+            - secretRef: { name: callwise-secrets }
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "512Mi" }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: verification-worker
+spec:
+  scaleTargetRef:
+    name: verification-worker
+  minReplicaCount: 2
+  maxReplicaCount: 40
+  cooldownPeriod: 60
+  triggers:
+    - type: redis-streams
+      metadata:
+        address: redis-cluster:6379
+        stream: "verify:stream"
+        consumerGroup: "verifiers"
+        pendingEntriesCount: "100"

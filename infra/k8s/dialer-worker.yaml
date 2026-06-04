@@ -1,0 +1,46 @@
+# Dialer workers — autoscaled by Redis Stream lag via KEDA, 3–100 replicas (PRD §15.2).
+# The concurrency governor caps live calls regardless of replica count: scaling drains the
+# queue faster, it never breaches the provider-licensed ceiling.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dialer-worker
+  labels: { app: dialer-worker }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: dialer-worker }
+  template:
+    metadata:
+      labels: { app: dialer-worker }
+    spec:
+      # Grace period > longest task so a deploy never abandons a dial mid-dispatch (§9.6).
+      terminationGracePeriodSeconds: 360
+      containers:
+        - name: dialer-worker
+          image: callwise/backend:latest
+          command: ["uv", "run", "python", "-m", "callwise.workers.dialer"]
+          envFrom:
+            - configMapRef: { name: callwise-config }
+            - secretRef: { name: callwise-secrets }
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "512Mi" }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: dialer-worker
+spec:
+  scaleTargetRef:
+    name: dialer-worker
+  minReplicaCount: 3
+  maxReplicaCount: 100
+  cooldownPeriod: 60
+  triggers:
+    - type: redis-streams
+      metadata:
+        address: redis-cluster:6379
+        stream: "dial:stream"
+        consumerGroup: "dialers"
+        pendingEntriesCount: "200" # scale up when lag > 200 per replica

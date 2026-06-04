@@ -60,7 +60,12 @@ def classify_reason(reason: str | None) -> RetryClass:
 def classify_error(exc: BaseException) -> RetryClass:
     """Classify an exception. Import-light: matches on type name + status attrs."""
     name = type(exc).__name__
-    if name in {"ProviderRateLimited", "TimeoutError", "ConnectionError"}:
+    if name in {
+        "ProviderRateLimited",
+        "ProviderRateLimitedError",
+        "TimeoutError",
+        "ConnectionError",
+    }:
         return RetryClass.retryable
     status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
     if isinstance(status, int) and 500 <= status < 600:
