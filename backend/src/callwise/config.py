@@ -1,0 +1,159 @@
+"""Centralised configuration via pydantic-settings.
+
+All tunables come from the environment (12-factor). Secrets in production come from
+AWS Secrets Manager / SSM injected as env vars — never committed files (PRD §14.5).
+Startup validation fails fast on unsafe config (e.g. a too-short JWT secret).
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from functools import lru_cache
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class AppEnv(StrEnum):
+    dev = "dev"
+    staging = "staging"
+    prod = "prod"
+
+
+class TelephonyProvider(StrEnum):
+    mock = "mock"
+    exotel = "exotel"
+    twilio = "twilio"
+    plivo = "plivo"
+    telnyx = "telnyx"
+
+
+class ConversationProvider(StrEnum):
+    mock = "mock"
+    elevenlabs = "elevenlabs"
+    livekit = "livekit"
+
+
+class LLMProvider(StrEnum):
+    mock = "mock"
+    azure_openai = "azure_openai"
+    openai = "openai"
+    anthropic = "anthropic"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", case_sensitive=False
+    )
+
+    # --- App ---
+    app_env: AppEnv = AppEnv.dev
+    log_level: str = "INFO"
+    base_url: str = "http://localhost:8001"
+
+    # --- Database ---
+    database_url: str = "postgresql+asyncpg://callwise:callwise@pgbouncer:6432/callwise"
+    database_url_direct: str = "postgresql+asyncpg://callwise:callwise@postgres:5432/callwise"
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+
+    # --- Redis ---
+    redis_url: str = "redis://redis:6379/0"
+
+    # --- Auth ---
+    jwt_secret: str = "dev-only-change-me-to-a-32+char-random-secret"
+    jwt_algorithm: str = "HS256"
+    jwt_access_ttl_seconds: int = 900
+    jwt_refresh_ttl_seconds: int = 1_209_600
+    allow_registration: bool = True
+
+    # --- Object store ---
+    s3_endpoint_url: str | None = None
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "callwise"
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+
+    # --- Provider selection ---
+    telephony_provider: TelephonyProvider = TelephonyProvider.mock
+    conversation_provider: ConversationProvider = ConversationProvider.mock
+    llm_provider: LLMProvider = LLMProvider.mock
+
+    # --- Telephony creds ---
+    exotel_sid: str | None = None
+    exotel_api_key: str | None = None
+    exotel_api_token: str | None = None
+    exotel_subdomain: str | None = None
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from_number: str | None = None
+
+    # --- Conversation creds ---
+    elevenlabs_api_key: str | None = None
+    elevenlabs_agent_id: str | None = None
+    elevenlabs_webhook_secret: str | None = None
+    livekit_url: str | None = None
+    livekit_api_key: str | None = None
+    livekit_api_secret: str | None = None
+
+    # --- LLM creds ---
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_key: str | None = None
+    azure_openai_deployment: str | None = None
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+
+    # --- Webhook security ---
+    webhook_timestamp_tolerance_seconds: int = 300
+    context_token_secret: str = "dev-only-change-me-context-signing-secret"
+    context_token_ttl_seconds: int = 600
+
+    # --- Governors ---
+    rate_limit_exotel: str = "40:80"
+    rate_limit_twilio: str = "10:20"
+    rate_limit_elevenlabs: str = "50:100"
+    global_max_concurrent_calls: int = 5000
+    concurrency_lease_ttl_seconds: int = 180
+
+    # --- Queue / broker ---
+    dial_stream: str = "dial:stream"
+    dial_consumer_group: str = "dialers"
+    verify_stream: str = "verify:stream"
+    verify_consumer_group: str = "verifiers"
+    dlq_stream: str = "dlq:stream"
+    queue_max_attempts: int = 5
+    queue_claim_idle_ms: int = 60_000
+
+    # --- Reconciler ---
+    reconciler_interval_seconds: int = 45
+    session_stale_ttl_seconds: int = 300
+
+    # --- Cost safety ---
+    default_max_attempts_per_contact: int = 3
+    llm_tokens_per_minute_budget: int = 200_000
+
+    @field_validator("jwt_secret", "context_token_secret")
+    @classmethod
+    def _secret_long_enough(cls, v: str) -> str:
+        if len(v) < 32:
+            raise ValueError("signing secret must be at least 32 characters (PRD §14.1)")
+        return v
+
+    @property
+    def provider_rate_limits(self) -> dict[str, tuple[float, int]]:
+        """Parse `rate:capacity` strings into {provider: (tokens_per_sec, burst)}."""
+        out: dict[str, tuple[float, int]] = {}
+        for provider, raw in {
+            "exotel": self.rate_limit_exotel,
+            "twilio": self.rate_limit_twilio,
+            "elevenlabs": self.rate_limit_elevenlabs,
+        }.items():
+            rate, _, cap = raw.partition(":")
+            out[provider] = (float(rate), int(cap or rate))
+        return out
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Process-wide singleton. Cached so validation runs once at first import."""
+    return Settings()
