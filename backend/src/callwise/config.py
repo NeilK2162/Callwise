@@ -83,7 +83,9 @@ class Settings(BaseSettings):
     exotel_sid: str | None = None
     exotel_api_key: str | None = None
     exotel_api_token: str | None = None
-    exotel_subdomain: str | None = None
+    exotel_subdomain: str = "api.exotel.com"  # api.in.exotel.com for the Mumbai cluster
+    exotel_caller_id: str | None = None  # your ExoPhone (virtual number) shown as CallerId
+    exotel_from: str | None = None  # number/SIP dialed first to bridge the agent leg
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None

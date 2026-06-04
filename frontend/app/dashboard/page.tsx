@@ -7,7 +7,7 @@ import { Filters } from "@/components/Filters";
 import { QueryCard } from "@/components/QueryCard";
 import { CardDetail } from "@/components/CardDetail";
 import { OutboundModal } from "@/components/OutboundModal";
-import { getFeed, getSummary } from "@/lib/api";
+import { connectFeedSocket, getFeed, getSummary } from "@/lib/api";
 import { SEED_SUMMARY } from "@/mocks/seed";
 import type { FilterKey, QueryCard as Card, Summary } from "@/lib/types";
 
@@ -20,10 +20,11 @@ export default function DashboardPage() {
   const [outboundOpen, setOutboundOpen] = useState(false);
   const [live, setLive] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     getSummary().then(setSummary);
-  }, []);
+  }, [tick]);
 
   useEffect(() => {
     setLoading(true);
@@ -35,7 +36,13 @@ export default function DashboardPage() {
       });
     }, 200);
     return () => clearTimeout(handle);
-  }, [filter, query]);
+  }, [filter, query, tick]);
+
+  // Live push: when a call completes, the backend pushes over WS → refetch feed + stats.
+  useEffect(() => {
+    const disconnect = connectFeedSocket(() => setTick((t) => t + 1));
+    return disconnect;
+  }, []);
 
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 py-6">

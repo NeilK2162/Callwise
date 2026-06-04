@@ -35,7 +35,10 @@ async def call_context(db: DbSession, token: str = Query(...)) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "context not found")
 
     provider = get_conversation_provider()
-    return await provider.build_context(snapshot)
+    context = await provider.build_context(snapshot)
+    # Thread our session id through so the post-call webhook correlates back to this call.
+    context["call_session_id"] = sid
+    return context
 
 
 @router.get("/exotel/connect-params")

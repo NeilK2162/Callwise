@@ -82,6 +82,17 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Seeds the demo clinic dashboard + demo user (demo@callwise.local / demo12345) so the
+  # dashboard's auto-login works and the feed is alive on first load.
+  seed:
+    build: { context: ./backend }
+    command: ["uv", "run", "python", "-m", "callwise.scripts.seed_demo"]
+    environment: *backend-env
+    depends_on:
+      pgbouncer: { condition: service_started }
+      migrate: { condition: service_completed_successfully }
+    restart: "no"
+
   control-api:
     build: { context: ./backend }
     command: ["uv", "run", "uvicorn", "callwise.control_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -90,7 +101,7 @@ services:
     depends_on:
       pgbouncer: { condition: service_started }
       redis: { condition: service_healthy }
-      migrate: { condition: service_completed_successfully }
+      seed: { condition: service_completed_successfully }
 
   webhook-ingest:
     build: { context: ./backend }

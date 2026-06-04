@@ -15,13 +15,19 @@ from sqlalchemy import select
 
 from callwise.control_api.deps import CurrentUser, DbSession
 from callwise.control_api.schemas import ContactOut, UploadResponse
+from callwise.db.enums import ContactStatus
 from callwise.db.models import Campaign, Contact, IngestJob
+from callwise.domain.ingest import parse_contacts
 from callwise.logging import get_logger
 
 router = APIRouter()
 log = get_logger(__name__)
 
 _TEMPLATE = "phone,customer_name,language,timezone,custom_field_1,custom_field_2\n"
+
+# Files larger than this are better handled by the async worker path (stream from S3,
+# chunked COPY, progress over WS). The synchronous path here covers normal uploads.
+_SYNC_SIZE_LIMIT = 8 * 1024 * 1024  # 8 MiB
 
 
 @router.get("/template", response_class=PlainTextResponse)
@@ -35,16 +41,59 @@ async def upload(
     db: DbSession,
     user: CurrentUser,
     campaign_name: str = Query(default="Imported campaign"),
+    default_country_code: str = Query(default="IN"),
 ) -> UploadResponse:
-    campaign = Campaign(owner_id=user.id, name=campaign_name, provider="mock")
+    content = await file.read()
+
+    campaign = Campaign(
+        owner_id=user.id,
+        name=campaign_name,
+        provider="mock",
+        default_country_code=default_country_code,
+    )
     db.add(campaign)
     await db.flush()
-    job = IngestJob(campaign_id=campaign.id, owner_id=user.id, status="pending")
+    job = IngestJob(campaign_id=campaign.id, owner_id=user.id, status="processing")
     db.add(job)
+    await db.flush()
+
+    if len(content) > _SYNC_SIZE_LIMIT:
+        # TODO: write to S3 + enqueue `ingest_file` for the streaming worker path.
+        job.status = "queued_async"
+        await db.commit()
+        log.info("ingest_deferred_large_file", job_id=str(job.id), bytes=len(content))
+        return UploadResponse(job_id=job.id, campaign_id=campaign.id, status=job.status)
+
+    result = parse_contacts(file.filename or "upload.csv", content, default_country_code)
+    db.add_all(
+        [
+            Contact(
+                campaign_id=campaign.id,
+                phone_e164=r.phone_e164,
+                customer_name=r.customer_name,
+                language=r.language,
+                timezone=r.timezone,
+                custom_fields=r.custom_fields,
+                status=ContactStatus.queued,
+            )
+            for r in result.valid
+        ]
+    )
+    job.total_rows = result.total
+    job.imported_rows = len(result.valid)
+    job.status = "completed"
+    # TODO: persist the full rejected_rows artifact to S3; for now record the count.
+    if result.rejected:
+        job.error = f"{len(result.rejected)} rows rejected (invalid/duplicate phone)"
     await db.commit()
-    # TODO: stream file -> S3, enqueue `ingest_file` task; worker does the chunked import,
-    #       E.164 normalization, in-file dedup, and a downloadable rejected_rows artifact.
-    log.info("ingest_job_created", job_id=str(job.id), filename=file.filename)
+
+    log.info(
+        "ingest_completed",
+        job_id=str(job.id),
+        total=result.total,
+        imported=job.imported_rows,
+        rejected=len(result.rejected),
+    )
     return UploadResponse(job_id=job.id, campaign_id=campaign.id, status=job.status)
 
 

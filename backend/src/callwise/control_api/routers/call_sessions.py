@@ -10,9 +10,11 @@ from sqlalchemy import select
 from callwise.control_api.deps import CurrentUser, DbSession, owned_or_404
 from callwise.control_api.schemas import (
     CallSessionOut,
+    OutboundAck,
     OutboundCallRequest,
     VerificationOut,
 )
+from callwise.db.enums import CallDirection, CampaignStatus, ContactStatus
 from callwise.db.models import (
     CallSession,
     CallVerification,
@@ -20,7 +22,10 @@ from callwise.db.models import (
     Contact,
     Transcript,
 )
+from callwise.domain.phone import InvalidPhoneNumber, normalize_e164
 from callwise.logging import get_logger
+from callwise.orchestration import enqueue_single_dial
+from callwise.queue.factory import get_queue
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -73,12 +78,49 @@ async def analyze(session_id: uuid.UUID, db: DbSession, user: CurrentUser) -> di
     return {"status": "queued"}
 
 
-@router.post("/outbound", response_model=CallSessionOut, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/outbound", response_model=OutboundAck, status_code=status.HTTP_202_ACCEPTED)
 async def start_outbound(
     body: OutboundCallRequest, db: DbSession, user: CurrentUser
-) -> CallSession:
-    """The dashboard's "Start Outbound Call" action. Creates/queues a contact and enqueues
-    a governed dial. The actual dial goes through the same claim → governed-dispatch path
-    as a campaign dial, so it inherits all the idempotency/concurrency guarantees."""
-    # TODO: normalize phone, create-or-find contact, create context snapshot, enqueue dial.
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "outbound trigger not yet wired")
+) -> OutboundAck:
+    """The dashboard's "Start Outbound Call" action. Queues a contact and enqueues a
+    governed dial through the SAME claim → governed-dispatch path as a campaign dial, so it
+    inherits every idempotency/concurrency guarantee."""
+    try:
+        phone = normalize_e164(body.phone, "IN")
+    except InvalidPhoneNumber as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid phone number") from exc
+
+    if body.campaign_id is not None:
+        campaign = await db.get(Campaign, body.campaign_id)
+        if campaign is None or (not user.is_superuser and campaign.owner_id != user.id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "campaign not found")
+    else:
+        # Find or create the user's ad-hoc outbound campaign.
+        campaign = await db.scalar(
+            select(Campaign).where(
+                Campaign.owner_id == user.id, Campaign.name == "Outbound (ad-hoc)"
+            )
+        )
+        if campaign is None:
+            campaign = Campaign(
+                owner_id=user.id,
+                name="Outbound (ad-hoc)",
+                provider="mock",
+                direction=CallDirection.outbound,
+                status=CampaignStatus.running,
+            )
+            db.add(campaign)
+            await db.flush()
+
+    contact = Contact(
+        campaign_id=campaign.id,
+        phone_e164=phone,
+        customer_name=body.customer_name,
+        status=ContactStatus.queued,
+    )
+    db.add(contact)
+    await db.commit()
+
+    await enqueue_single_dial(get_queue(), campaign_id=campaign.id, contact_id=contact.id)
+    log.info("outbound_enqueued", contact_id=str(contact.id), campaign_id=str(campaign.id))
+    return OutboundAck(status="queued", contact_id=contact.id, campaign_id=campaign.id)

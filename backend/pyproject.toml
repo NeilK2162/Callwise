@@ -22,6 +22,7 @@ dependencies = [
     "python-multipart==0.0.20",
     "openpyxl==3.1.5",
     "phonenumbers==8.13.52",
+    "tzdata==2024.2",
     "structlog==24.4.0",
     "orjson==3.10.13",
     "prometheus-client==0.21.1",

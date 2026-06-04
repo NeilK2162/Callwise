@@ -14,6 +14,8 @@ from callwise.db.enums import CampaignStatus
 from callwise.db.models import Campaign
 from callwise.locks import redlock
 from callwise.logging import get_logger
+from callwise.orchestration import enqueue_dials_for_campaign
+from callwise.queue.factory import get_queue
 from callwise.redis_pool import get_redis
 
 router = APIRouter()
@@ -66,9 +68,9 @@ async def start_campaign(campaign_id: uuid.UUID, db: DbSession, user: CurrentUse
         }
         campaign.status = CampaignStatus.running
         await db.commit()
-        # TODO: enqueue dials for queued contacts in PACED batches (PRD §8.4, edge #37).
-        #       The claim itself is idempotent, so enqueue is safe to retry.
-        log.info("campaign_started", campaign_id=str(campaign_id))
+        # Enqueue dials in paced batches; the claim is idempotent so this is retry-safe.
+        enqueued = await enqueue_dials_for_campaign(db, get_queue(), campaign=campaign)
+        log.info("campaign_started", campaign_id=str(campaign_id), enqueued=enqueued)
     return campaign
 
 

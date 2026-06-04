@@ -24,9 +24,8 @@ async def elevenlabs_webhook(request: Request, db: DbSession, queue: QueueDep) -
 
     payload = orjson.loads(raw or b"{}")
     event_type = payload.get("type", "post_call_transcription")
-    event_id = stable_event_id(
-        "elevenlabs", payload.get("event_id") or payload.get("conversation_id"), raw
-    )
+    conversation_id = (payload.get("data", {}) or {}).get("conversation_id")
+    event_id = stable_event_id("elevenlabs", f"{conversation_id}:{event_type}", raw)
     await ingest_event(
         db,
         queue,

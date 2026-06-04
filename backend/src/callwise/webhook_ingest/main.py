@@ -17,7 +17,7 @@ from callwise.config import get_settings
 from callwise.logging import configure_logging, get_logger
 from callwise.observability.tracing import setup_tracing
 from callwise.queue.factory import get_queue
-from callwise.webhook_ingest.routers import context, elevenlabs, exotel, twilio
+from callwise.webhook_ingest.routers import context, elevenlabs, exotel, mock, twilio
 
 log = get_logger(__name__)
 
@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
     app = FastAPI(title="Callwise Webhook Ingest", version="0.1.0", lifespan=lifespan)
     setup_tracing(app, service_name="webhook-ingest")
 
@@ -42,6 +43,8 @@ def create_app() -> FastAPI:
     app.include_router(exotel.router, prefix="/api/v2", tags=["exotel"])
     app.include_router(twilio.router, prefix="/api/v2", tags=["twilio"])
     app.include_router(context.router, prefix="/api/v2", tags=["context"])
+    if settings.app_env == "dev":
+        app.include_router(mock.router, prefix="/api/v2", tags=["mock"])
 
     app.mount("/metrics", make_asgi_app())
 

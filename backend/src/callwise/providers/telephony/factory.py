@@ -11,7 +11,7 @@ def get_telephony_provider(settings: Settings | None = None) -> TelephonyProvide
     settings = settings or get_settings()
     match settings.telephony_provider:
         case TelephonyProviderName.mock:
-            return MockTelephonyProvider()
+            return MockTelephonyProvider(base_url=settings.base_url)
         case TelephonyProviderName.exotel:
             from callwise.providers.telephony.exotel import ExotelProvider
 

@@ -138,3 +138,9 @@ class OutboundCallRequest(BaseModel):
     phone: str
     campaign_id: uuid.UUID | None = None
     customer_name: str | None = None
+
+
+class OutboundAck(BaseModel):
+    status: str
+    contact_id: uuid.UUID
+    campaign_id: uuid.UUID

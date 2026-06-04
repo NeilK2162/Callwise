@@ -24,24 +24,45 @@ def _constant_time_eq(a: str, b: str) -> bool:
     return hmac.compare_digest(a, b)
 
 
-def verify_hmac_sha256(raw_body: bytes, signature: str, secret: str) -> bool:
-    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-    # Accept either bare hex or `t=...,v0=...`-style prefixed signatures.
-    provided = signature.split("v0=")[-1].split(",")[0].strip() if signature else ""
-    return _constant_time_eq(expected, provided)
+# ElevenLabs signs webhooks Stripe-style: header `ElevenLabs-Signature: t=<unix>,v0=<hex>`,
+# where <hex> = HMAC-SHA256(secret, f"{t}.{raw_body}"). Timestamp tolerance is 30 minutes.
+# Refs: elevenlabs.io/docs/.../post-call-webhooks (SDK construct_event does the same).
+_ELEVENLABS_TOLERANCE_S = 30 * 60
+
+
+def _parse_signature_header(header: str) -> tuple[str | None, str | None]:
+    t = v0 = None
+    for part in header.split(","):
+        key, _, value = part.strip().partition("=")
+        if key == "t":
+            t = value
+        elif key == "v0":
+            v0 = value
+    return t, v0
 
 
 def verify_elevenlabs(raw_body: bytes, signature_header: str | None) -> bool:
     s = get_settings()
-    if not s.elevenlabs_webhook_secret:
-        # Only allowed in dev (mock provider). Never skip verification in staging/prod.
+    secret = s.elevenlabs_webhook_secret
+    if not secret:
+        # Only allowed in dev. Never skip verification in staging/prod.
         if s.app_env == "dev":
             log.warning("webhook_hmac_skipped_dev", provider="elevenlabs")
             return True
         return False
     if not signature_header:
         return False
-    return verify_hmac_sha256(raw_body, signature_header, s.elevenlabs_webhook_secret)
+    t, v0 = _parse_signature_header(signature_header)
+    if not t or not v0:
+        return False
+    try:
+        if abs(time.time() - int(t)) > _ELEVENLABS_TOLERANCE_S:
+            return False  # stale → replay defense
+    except ValueError:
+        return False
+    signed = t.encode() + b"." + raw_body  # exact byte layout of the raw body matters
+    expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    return _constant_time_eq(expected, v0)
 
 
 def verify_twilio(raw_body: bytes, signature_header: str | None, url: str) -> bool:
