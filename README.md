@@ -37,12 +37,13 @@ callwise/
 │   └── tests/                # unit · integration · idempotency suite
 ├── frontend/       # Next.js (App Router) · TypeScript · Tailwind — landing + dashboard
 ├── infra/          # Kubernetes manifests, KEDA, PgBouncer, Redis config
-├── docs/           # architecture, data model, idempotency, runbooks
+├── docs/           # architecture, data model, idempotency, vendors, runbooks
 └── docker-compose.yml   # full local stack (postgres, pgbouncer, redis, minio, apps)
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the system overview and
-[`docs/idempotency.md`](docs/idempotency.md) for the master idempotency design.
+See [`docs/architecture.md`](docs/architecture.md) for the system overview,
+[`docs/idempotency.md`](docs/idempotency.md) for the master idempotency design, and
+[`docs/vendors.md`](docs/vendors.md) for all external vendors and documentation links.
 
 ---
 

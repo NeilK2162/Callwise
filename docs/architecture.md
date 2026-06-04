@@ -62,6 +62,9 @@ Three factory-backed seams (`backend/src/callwise/providers/`): telephony, conve
 LLM. The default stack is **mock** (no external creds) for local dev and the load/chaos
 harness. Switch via `TELEPHONY_PROVIDER` / `CONVERSATION_PROVIDER` / `LLM_PROVIDER`.
 
+See [`vendors.md`](vendors.md) for every external vendor, implementation status, and
+official documentation URLs.
+
 ## Rollout
 
 | Phase | Scope | Exit criteria |

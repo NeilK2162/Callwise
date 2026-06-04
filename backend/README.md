@@ -43,3 +43,5 @@ uv run ruff check . && uv run mypy src
 > Behind PgBouncer transaction pooling the async engine sets `statement_cache_size=0`
 > (PRD §9.7) — prepared-statement caching corrupts otherwise. This is handled in
 > `db/base.py`; don't remove it.
+
+Provider matrix and doc links: [`../docs/vendors.md`](../docs/vendors.md).
