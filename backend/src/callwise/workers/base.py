@@ -35,6 +35,7 @@ class StreamWorker:
         queue: Queue | None = None,
         batch: int = 10,
         block_ms: int = 2000,
+        on_start: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self.stream = stream
         self.group = group
@@ -42,6 +43,7 @@ class StreamWorker:
         self.queue = queue or get_queue()
         self.batch = batch
         self.block_ms = block_ms
+        self.on_start = on_start
         self.consumer = f"{group}-{socket.gethostname()}-{os.getpid()}"
         self._stop = asyncio.Event()
         self._settings = get_settings()
@@ -80,6 +82,8 @@ class StreamWorker:
         configure_logging(self._settings.log_level, json=self._settings.app_env != "dev")
         self._install_signals()
         await self.queue.ensure_group(self.stream, self.group)
+        if self.on_start is not None:
+            await self.on_start()
         log.info("worker_started", stream=self.stream, consumer=self.consumer)
 
         while not self._stop.is_set():

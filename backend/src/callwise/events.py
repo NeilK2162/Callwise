@@ -17,5 +17,16 @@ def feed_channel(owner_id: uuid.UUID | str) -> str:
     return f"events:{owner_id}"
 
 
+def transcript_channel(session_id: uuid.UUID | str) -> str:
+    return f"transcript:{session_id}"
+
+
 async def publish_card_event(redis: Redis, owner_id: uuid.UUID | str, payload: dict) -> None:
     await redis.publish(feed_channel(owner_id), orjson.dumps(payload))
+
+
+async def publish_transcript_turn(
+    redis: Redis, session_id: uuid.UUID | str, turn: dict
+) -> None:
+    """Live transcript turn for an in-progress call (LiveKit path → /ws/transcripts)."""
+    await redis.publish(transcript_channel(session_id), orjson.dumps(turn))

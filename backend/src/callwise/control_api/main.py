@@ -25,6 +25,7 @@ from callwise.control_api.routers import (
 )
 from callwise.logging import configure_logging, get_logger
 from callwise.observability.tracing import setup_tracing
+from callwise.storage import get_object_store
 
 log = get_logger(__name__)
 
@@ -33,6 +34,10 @@ log = get_logger(__name__)
 async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level, json=settings.app_env != "dev")
+    try:
+        await get_object_store().ensure_bucket()
+    except Exception:  # noqa: BLE001 — storage is best-effort; never block startup
+        log.warning("object_store_init_skipped")
     log.info("control_api_starting", env=settings.app_env)
     yield
     log.info("control_api_stopping")

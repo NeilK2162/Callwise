@@ -3,13 +3,14 @@ name = "callwise"
 version = "0.1.0"
 description = "Callwise — AI voice-agent platform (production engine)"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 
 # Exact pins — single source of truth, resolved into uv.lock (PRD §14.6).
 dependencies = [
     "fastapi==0.115.6",
     "uvicorn[standard]==0.34.0",
     "pydantic==2.10.4",
+    "email-validator==2.2.0",
     "pydantic-settings==2.7.1",
     "sqlalchemy[asyncio]==2.0.36",
     "asyncpg==0.30.0",
@@ -25,9 +26,10 @@ dependencies = [
     "tzdata==2024.2",
     "structlog==24.4.0",
     "orjson==3.10.13",
-    "prometheus-client==0.21.1",
-    "opentelemetry-sdk==1.29.0",
-    "opentelemetry-instrumentation-fastapi==0.50b0",
+    "prometheus-client==0.22.1",
+    "opentelemetry-sdk==1.39.0",
+    "opentelemetry-instrumentation-fastapi==0.60b0",
+    "opentelemetry-exporter-otlp==1.39.0",
     "tenacity==9.0.0",
     "aioboto3==13.3.0",
 ]
@@ -39,7 +41,7 @@ telephony = ["twilio==9.4.1"]
 # LiveKit real-time agent path (Soniox STT → LLM → ElevenLabs TTS). The ElevenLabs ConvAI
 # path needs no SDK — we parse its webhooks + verify HMAC directly.
 conversation = ["livekit-agents[soniox,elevenlabs,silero,openai]~=1.5"]
-llm = ["anthropic==0.42.0", "openai==1.59.3"]
+llm = ["anthropic==0.42.0", "openai==2.41.0"]
 
 [dependency-groups]
 dev = [

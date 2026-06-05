@@ -27,7 +27,7 @@ services:
       POSTGRES_USER: callwise
       POSTGRES_PASSWORD: callwise
       POSTGRES_DB: callwise
-    ports: ["5432:5432"]
+    ports: ["5433:5432"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U callwise"]
@@ -36,18 +36,24 @@ services:
       retries: 10
 
   pgbouncer:
-    image: edoburu/pgbouncer:1.22.1
+    image: edoburu/pgbouncer:v1.25.1-p0
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_USER: callwise
       DB_PASSWORD: callwise
       DB_NAME: callwise
+      LISTEN_PORT: "6432"           # must match DATABASE_URL port (image defaults to 5432)
       POOL_MODE: transaction        # multiplex thousands of clients onto few conns (PRD §15.3)
       MAX_CLIENT_CONN: "10000"
       DEFAULT_POOL_SIZE: "50"
       AUTH_TYPE: scram-sha-256
     ports: ["6432:6432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U callwise || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,7 +95,7 @@ services:
     command: ["uv", "run", "python", "-m", "callwise.scripts.seed_demo"]
     environment: *backend-env
     depends_on:
-      pgbouncer: { condition: service_started }
+      pgbouncer: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
     restart: "no"
 
@@ -99,7 +105,7 @@ services:
     environment: *backend-env
     ports: ["8000:8000"]
     depends_on:
-      pgbouncer: { condition: service_started }
+      pgbouncer: { condition: service_healthy }
       redis: { condition: service_healthy }
       seed: { condition: service_completed_successfully }
 
@@ -109,7 +115,7 @@ services:
     environment: *backend-env
     ports: ["8001:8001"]
     depends_on:
-      pgbouncer: { condition: service_started }
+      pgbouncer: { condition: service_healthy }
       redis: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
@@ -118,7 +124,7 @@ services:
     command: ["uv", "run", "python", "-m", "callwise.workers.dialer"]
     environment: *backend-env
     depends_on:
-      pgbouncer: { condition: service_started }
+      pgbouncer: { condition: service_healthy }
       redis: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
@@ -127,7 +133,7 @@ services:
     command: ["uv", "run", "python", "-m", "callwise.workers.verification"]
     environment: *backend-env
     depends_on:
-      pgbouncer: { condition: service_started }
+      pgbouncer: { condition: service_healthy }
       redis: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
@@ -136,8 +142,18 @@ services:
     command: ["uv", "run", "python", "-m", "callwise.workers.reconciler"]
     environment: *backend-env
     depends_on:
-      pgbouncer: { condition: service_started }
+      pgbouncer: { condition: service_healthy }
       redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  ingest-worker:
+    build: { context: ./backend }
+    command: ["uv", "run", "python", "-m", "callwise.workers.ingest"]
+    environment: *backend-env
+    depends_on:
+      pgbouncer: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_started }
       migrate: { condition: service_completed_successfully }
 
   frontend:

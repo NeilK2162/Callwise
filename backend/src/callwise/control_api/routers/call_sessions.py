@@ -14,18 +14,21 @@ from callwise.control_api.schemas import (
     OutboundCallRequest,
     VerificationOut,
 )
+from callwise.config import get_settings
 from callwise.db.enums import CallDirection, CampaignStatus, ContactStatus
 from callwise.db.models import (
     CallSession,
     CallVerification,
     Campaign,
     Contact,
+    Recording,
     Transcript,
 )
 from callwise.domain.phone import InvalidPhoneNumber, normalize_e164
 from callwise.logging import get_logger
 from callwise.orchestration import enqueue_single_dial
 from callwise.queue.factory import get_queue
+from callwise.storage import get_object_store
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -69,11 +72,36 @@ async def get_verifications(
     )
 
 
+@router.get("/{session_id}/recording")
+async def session_recording(
+    session_id: uuid.UUID, db: DbSession, user: CurrentUser
+) -> dict[str, str]:
+    """Presigned playback URL for the call's recording (PRD §14.5)."""
+    await _owned_session(db, session_id, user)
+    rec = await db.scalar(
+        select(Recording).where(
+            Recording.call_session_id == session_id, Recording.uploaded.is_(True)
+        )
+    )
+    if rec is None or rec.s3_key is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no recording")
+    key = rec.s3_key
+    if key.startswith(("mock://", "s3://", "http://", "https://")):
+        url = key  # demo/local placeholder or already-public URL
+    else:
+        url = await get_object_store().presigned_get(key, expires=300)
+    return {"url": url}
+
+
 @router.post("/{session_id}/analyze")
 async def analyze(session_id: uuid.UUID, db: DbSession, user: CurrentUser) -> dict[str, str]:
-    """Manual re-verify. Idempotent: the verification upsert overwrites, never duplicates."""
+    """Manual re-verify. Enqueues a re-verify task; the upsert overwrites, never duplicates."""
     await _owned_session(db, session_id, user)
-    # TODO: enqueue `process_call_session` (verify step) keyed on session_id.
+    await get_queue().publish(
+        get_settings().verify_stream,
+        {"provider": "reverify", "call_session_id": str(session_id)},
+        idempotency_key=f"reverify:{session_id}",
+    )
     log.info("manual_reverify_requested", call_session_id=str(session_id))
     return {"status": "queued"}
 

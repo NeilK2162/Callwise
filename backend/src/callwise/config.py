@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
+    plivo_auth_id: str | None = None
+    plivo_auth_token: str | None = None
+    plivo_from: str | None = None
+    telnyx_api_key: str | None = None
+    telnyx_connection_id: str | None = None
+    telnyx_from: str | None = None
 
     # --- Conversation creds ---
     elevenlabs_api_key: str | None = None
@@ -138,9 +144,15 @@ class Settings(BaseSettings):
     dial_consumer_group: str = "dialers"
     verify_stream: str = "verify:stream"
     verify_consumer_group: str = "verifiers"
+    ingest_stream: str = "ingest:stream"
+    ingest_consumer_group: str = "ingesters"
     dlq_stream: str = "dlq:stream"
     queue_max_attempts: int = 5
     queue_claim_idle_ms: int = 60_000
+    ingest_sync_size_limit: int = 8 * 1024 * 1024  # >this → async S3 ingest (PRD §5.1)
+
+    # --- Observability ---
+    otel_exporter_otlp_endpoint: str | None = None  # e.g. http://otel-collector:4317
 
     # --- Reconciler ---
     reconciler_interval_seconds: int = 45

@@ -6,9 +6,12 @@ endpoint assembles the query cards that are the centerpiece of the dashboard.
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 
 from callwise.control_api.deps import CurrentUser, DbSession
@@ -133,6 +136,56 @@ async def feed(
 
 
 @router.get("/export")
-async def export(db: DbSession, user: CurrentUser) -> dict[str, str]:
-    # TODO: stream a CSV/XLSX export from the read replica.
-    return {"status": "not_implemented"}
+async def export(db: DbSession, user: CurrentUser, limit: int = Query(default=5000, le=50000)):
+    """Stream the feed as CSV from the read replica (PRD §11.1). Memory-safe: rows are
+    streamed from the DB, not buffered."""
+    stmt = (
+        select(CallSession, Contact, Transcript, CallVerification)
+        .join(Contact, Contact.id == CallSession.contact_id)
+        .join(Campaign, Campaign.id == Contact.campaign_id)
+        .outerjoin(Transcript, Transcript.call_session_id == CallSession.id)
+        .outerjoin(
+            CallVerification,
+            (CallVerification.call_session_id == CallSession.id)
+            & (CallVerification.step == "verify"),
+        )
+        .order_by(CallSession.started_at.desc())
+        .limit(limit)
+    )
+    stmt = _owned_session_filter(stmt, user)
+
+    async def rows():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+
+        def flush() -> str:
+            value = buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+            return value
+
+        writer.writerow(
+            ["call_session_id", "direction", "phone", "customer_name", "started_at",
+             "outcome", "confidence", "duration_s", "summary"]
+        )
+        yield flush()
+        result = await db.stream(stmt)
+        async for sess, contact, transcript, verification in result:
+            writer.writerow([
+                str(sess.id),
+                sess.direction.value,
+                mask_e164(contact.phone_e164),
+                contact.customer_name or "",
+                sess.started_at.isoformat(),
+                verification.outcome.value if verification else "",
+                verification.confidence if verification else "",
+                sess.duration_s if sess.duration_s is not None else "",
+                (transcript.summary if transcript else "") or "",
+            ])
+            yield flush()
+
+    return StreamingResponse(
+        rows(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=callwise-export.csv"},
+    )

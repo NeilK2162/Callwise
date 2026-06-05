@@ -15,9 +15,21 @@ from opentelemetry.sdk.trace import TracerProvider
 
 
 def setup_tracing(app: Any | None = None, *, service_name: str = "callwise") -> None:
+    from callwise.config import get_settings
+
     provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
+    endpoint = get_settings().otel_exporter_otlp_endpoint
+    if endpoint:
+        try:
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+            from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+            provider.add_span_processor(
+                BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, insecure=True))
+            )
+        except Exception:  # noqa: BLE001 — exporter is optional; tracing must never block boot
+            pass
     trace.set_tracer_provider(provider)
-    # TODO: add an OTLPSpanExporter + BatchSpanProcessor from OTEL_EXPORTER_OTLP_ENDPOINT.
     if app is not None:
         try:
             from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor

@@ -39,6 +39,7 @@ from callwise.queue.base import Message
 from callwise.queue.factory import get_queue
 from callwise.redis_pool import get_redis
 from callwise.reliability.retry import RetryClass, classify_reason
+from callwise.storage import get_object_store
 from callwise.workers.base import StreamWorker, run_worker
 
 log = get_logger(__name__)
@@ -169,9 +170,52 @@ def _exotel_answered_by(raw: dict) -> str | None:
     return None
 
 
+async def _reverify(call_session_id: str) -> None:
+    """Manual re-verify: re-run the LLM over the stored transcript (idempotent upsert)."""
+    llm = get_llm_provider()
+    async with get_sessionmaker()() as db:
+        sess = await db.get(CallSession, uuid.UUID(call_session_id))
+        transcript = (
+            await db.scalar(select(Transcript).where(Transcript.call_session_id == sess.id))
+            if sess
+            else None
+        )
+        if sess is None or transcript is None:
+            return
+        bind_call_context(call_session_id=str(sess.id))
+        snapshot = (
+            await load_snapshot(db, sess.context_snapshot_id) if sess.context_snapshot_id else None
+        )
+        result = await verify_transcript(
+            llm,
+            expected=snapshot.custom_fields if snapshot else {},
+            turns=transcript.turns,
+            language=snapshot.language if snapshot else "en",
+        )
+        try:
+            outcome = VerificationOutcome(result.get("outcome", "undetermined"))
+        except ValueError:
+            outcome = VerificationOutcome.undetermined
+        await upsert_verification(
+            db, call_session_id=sess.id, step="verify", outcome=outcome,
+            responder_type=result.get("responder_type"),
+            confidence=float(result.get("confidence", 0.0)),
+            extracted=result.get("extracted", {}), result=result,
+        )
+        await db.execute(
+            update(Contact).where(Contact.id == sess.contact_id).values(last_outcome=outcome.value)
+        )
+        await db.commit()
+        log.info("manual_reverify_done", outcome=outcome.value)
+
+
 async def handle_verification(msg: Message) -> None:
-    event_id = msg.payload["event_id"]
     provider = msg.payload.get("provider", "")
+    if provider == "reverify":
+        await _reverify(msg.payload["call_session_id"])
+        return
+
+    event_id = msg.payload["event_id"]
     sessionmaker = get_sessionmaker()
     conversation = get_conversation_provider()
     llm = get_llm_provider()
@@ -239,11 +283,17 @@ async def handle_verification(msg: Message) -> None:
         # summary from the verify call — never a separate summarization request.
         existing = await db.scalar(select(Transcript).where(Transcript.call_session_id == sess.id))
         if existing is None:
+            # Archive the transcript .txt to S3 (best-effort — never fail verify on S3, edge #27).
+            text = "\n".join(f"[{t.get('role', '?')}] {t.get('text', '')}" for t in parsed.turns)
+            transcript_key = await get_object_store().try_upload(
+                f"transcripts/{sess.id}.txt", text.encode("utf-8"), content_type="text/plain"
+            )
             db.add(
                 Transcript(
                     call_session_id=sess.id,
                     turns=parsed.turns,
                     summary=parsed.summary or result.get("summary"),
+                    s3_key=transcript_key,
                 )
             )
             if parsed.recording_url:
@@ -324,6 +374,7 @@ def main() -> None:
             stream=settings.verify_stream,
             group=settings.verify_consumer_group,
             handler=handle_verification,
+            on_start=get_object_store().ensure_bucket,
         )
     )
 

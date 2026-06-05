@@ -23,7 +23,7 @@ from callwise.db.models import CallSession, Contact
 from callwise.domain.idempotency import advance_call_status
 from callwise.locks import redlock
 from callwise.logging import configure_logging, get_logger
-from callwise.providers.telephony.factory import get_telephony_provider
+from callwise.providers.telephony.factory import get_telephony_provider_by_name
 from callwise.redis_pool import get_redis
 from callwise.reliability.outbox import dispatch_outbox
 
@@ -68,15 +68,15 @@ async def _sweep_stale_sessions(db, stale_ttl: int) -> int:
     )
     resolved = 0
     for sess in stale:
-        # TODO: select the adapter by sess.provider instead of the configured default.
-        provider = get_telephony_provider()
+        # Resolve true state via the SESSION's provider (not the configured default).
         try:
+            provider = get_telephony_provider_by_name(sess.provider)
             true_status = (
                 await provider.get_call_status(sess.provider_call_id)
                 if sess.provider_call_id
                 else CallStatus.failed
             )
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — unconfigured/unreachable provider → fail safe
             true_status = CallStatus.failed
         if await advance_call_status(db, session_id=sess.id, new_status=true_status):
             resolved += 1

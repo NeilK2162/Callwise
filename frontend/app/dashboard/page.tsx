@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { PhoneOutgoing } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { PhoneOutgoing, Search } from "lucide-react";
+import { SidebarRail } from "@/components/dashboard/SidebarRail";
 import { StatsBar } from "@/components/StatsBar";
 import { Filters } from "@/components/Filters";
 import { QueryCard } from "@/components/QueryCard";
@@ -21,6 +23,8 @@ export default function DashboardPage() {
   const [live, setLive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
+  const [newCardId, setNewCardId] = useState<string | null>(null);
+  const prevTopId = useRef<string | null>(null);
 
   useEffect(() => {
     getSummary().then(setSummary);
@@ -29,64 +33,87 @@ export default function DashboardPage() {
   useEffect(() => {
     setLoading(true);
     const handle = setTimeout(() => {
-      getFeed(filter, query).then(({ cards, live }) => {
-        setCards(cards);
-        setLive(live);
+      getFeed(filter, query).then(({ cards: next, live: isLive }) => {
+        if (next[0]?.call_session_id && prevTopId.current && next[0].call_session_id !== prevTopId.current) {
+          setNewCardId(next[0].call_session_id);
+          window.setTimeout(() => setNewCardId(null), 1500);
+        }
+        prevTopId.current = next[0]?.call_session_id ?? null;
+        setCards(next);
+        setLive(isLive);
         setLoading(false);
       });
     }, 200);
     return () => clearTimeout(handle);
   }, [filter, query, tick]);
 
-  // Live push: when a call completes, the backend pushes over WS → refetch feed + stats.
   useEffect(() => {
     const disconnect = connectFeedSocket(() => setTick((t) => t + 1));
     return disconnect;
   }, []);
 
+  const needsActionCount = cards.filter((c) => c.outcome === "callback_needed").length;
+
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-4 py-6">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="text-xl font-bold tracking-tight text-brand-600">Callwise</span>
-          <span className="text-sm text-ink-500">Clinic Dashboard</span>
-          <span
-            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-              live ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-ink-500"
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-500" : "bg-slate-400"}`} />
-            {live ? "Live" : "Demo data"}
-          </span>
-        </div>
-        <button
-          onClick={() => setOutboundOpen(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-600"
-        >
-          <PhoneOutgoing className="h-4 w-4" /> Start Outbound Call
-        </button>
-      </header>
+    <div className="shell">
+      <SidebarRail />
 
-      <div className="mb-5">
-        <StatsBar summary={summary} />
-      </div>
+      <div className="main">
+        <div className="main-in">
+          <header className="top">
+            <div className="top-l">
+              <h1 className="top-title">Clinic Dashboard</h1>
+              <span className={`livechip${live ? " on" : ""}`}>
+                <span className="lc-dot" />
+                {live ? "Live" : "Demo data"}
+              </span>
+            </div>
+            <div className="top-r">
+              <label className="search">
+                <Search size={16} strokeWidth={2} />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search name, summary, number…"
+                />
+              </label>
+              <button type="button" className="btn-fill" onClick={() => setOutboundOpen(true)}>
+                <PhoneOutgoing size={16} strokeWidth={2} />
+                Start Outbound Call
+              </button>
+            </div>
+          </header>
 
-      <div className="mb-4">
-        <Filters active={filter} onChange={setFilter} query={query} onQuery={setQuery} />
-      </div>
+          <StatsBar summary={summary} />
 
-      <div className="space-y-3">
-        {loading && cards.length === 0 && (
-          <div className="py-12 text-center text-sm text-ink-500">Loading feed…</div>
-        )}
-        {!loading && cards.length === 0 && (
-          <div className="rounded-xl border border-dashed border-slate-300 py-12 text-center text-sm text-ink-500">
-            No calls match this view yet.
+          <Filters
+            active={filter}
+            onChange={setFilter}
+            needsActionCount={needsActionCount}
+            resultCount={cards.length}
+          />
+
+          <div className="feed">
+            {loading && cards.length === 0 && (
+              <div className="empty">Loading feed…</div>
+            )}
+            {!loading && cards.length === 0 && (
+              <div className="empty">No calls match this view yet.</div>
+            )}
+            {cards.map((card) => (
+              <QueryCard
+                key={card.call_session_id}
+                card={card}
+                onOpen={setSelected}
+                isNew={card.call_session_id === newCardId}
+              />
+            ))}
           </div>
-        )}
-        {cards.map((card) => (
-          <QueryCard key={card.call_session_id} card={card} onOpen={setSelected} />
-        ))}
+
+          <p className="main-foot">
+            <Link href="/">← Back to landing</Link>
+          </p>
+        </div>
       </div>
 
       <CardDetail card={selected} onClose={() => setSelected(null)} />

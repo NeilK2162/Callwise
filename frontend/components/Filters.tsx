@@ -1,6 +1,5 @@
 "use client";
 
-import { Search } from "lucide-react";
 import clsx from "clsx";
 import type { FilterKey } from "@/lib/types";
 
@@ -14,41 +13,34 @@ const TABS: { key: FilterKey; label: string }[] = [
 export function Filters({
   active,
   onChange,
-  query,
-  onQuery,
+  needsActionCount,
+  resultCount,
 }: {
   active: FilterKey;
   onChange: (k: FilterKey) => void;
-  query: string;
-  onQuery: (q: string) => void;
+  needsActionCount: number;
+  resultCount: number;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+    <div className="filters">
+      <div className="tabs">
         {TABS.map((t) => (
           <button
             key={t.key}
+            type="button"
             onClick={() => onChange(t.key)}
-            className={clsx(
-              "rounded-md px-3 py-1.5 text-sm font-medium transition",
-              active === t.key
-                ? "bg-white text-ink-900 shadow-sm"
-                : "text-ink-500 hover:text-ink-700",
-            )}
+            className={clsx("tab", active === t.key && "on")}
           >
             {t.label}
+            {t.key === "needs_action" && needsActionCount > 0 && (
+              <span className="tab-count">{needsActionCount}</span>
+            )}
           </button>
         ))}
       </div>
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-500" />
-        <input
-          value={query}
-          onChange={(e) => onQuery(e.target.value)}
-          placeholder="Search name, summary, number…"
-          className="w-64 rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-        />
-      </div>
+      <span className="filters-meta">
+        {resultCount} {resultCount === 1 ? "call" : "calls"}
+      </span>
     </div>
   );
 }

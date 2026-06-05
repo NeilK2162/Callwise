@@ -40,6 +40,9 @@ uv run pytest                   # tests (incl. the mandatory idempotency suite)
 uv run ruff check . && uv run mypy src
 ```
 
+Full-stack testing guide (unit + integration + Docker + manual E2E):
+[`../docs/testing.md`](../docs/testing.md).
+
 > Behind PgBouncer transaction pooling the async engine sets `statement_cache_size=0`
 > (PRD §9.7) — prepared-statement caching corrupts otherwise. This is handled in
 > `db/base.py`; don't remove it.

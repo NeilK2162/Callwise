@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import select
 
 from callwise.control_api.deps import CurrentUser, DbSession, owned_or_404
@@ -90,8 +90,15 @@ async def resume_campaign(campaign_id: uuid.UUID, db: DbSession, user: CurrentUs
     return campaign
 
 
-@router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_campaign(campaign_id: uuid.UUID, db: DbSession, user: CurrentUser) -> None:
+@router.delete(
+    "/{campaign_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def delete_campaign(
+    campaign_id: uuid.UUID, db: DbSession, user: CurrentUser
+) -> Response:
     campaign = await _get_owned(db, campaign_id, user)
     await db.delete(campaign)
     await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

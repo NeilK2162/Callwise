@@ -45,6 +45,9 @@ See [`docs/architecture.md`](docs/architecture.md) for the system overview,
 [`docs/idempotency.md`](docs/idempotency.md) for the master idempotency design, and
 [`docs/vendors.md`](docs/vendors.md) for all external vendors and documentation links.
 
+**Testing the full application** (automated suite + Docker smoke + manual E2E mock call):
+[`docs/testing.md`](docs/testing.md).
+
 ---
 
 ## Quickstart (local dev)

@@ -13,21 +13,20 @@ from fastapi import APIRouter, Query, UploadFile
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 
+from callwise.config import get_settings
 from callwise.control_api.deps import CurrentUser, DbSession
 from callwise.control_api.schemas import ContactOut, UploadResponse
 from callwise.db.enums import ContactStatus
 from callwise.db.models import Campaign, Contact, IngestJob
 from callwise.domain.ingest import parse_contacts
 from callwise.logging import get_logger
+from callwise.queue.factory import get_queue
+from callwise.storage import get_object_store
 
 router = APIRouter()
 log = get_logger(__name__)
 
 _TEMPLATE = "phone,customer_name,language,timezone,custom_field_1,custom_field_2\n"
-
-# Files larger than this are better handled by the async worker path (stream from S3,
-# chunked COPY, progress over WS). The synchronous path here covers normal uploads.
-_SYNC_SIZE_LIMIT = 8 * 1024 * 1024  # 8 MiB
 
 
 @router.get("/template", response_class=PlainTextResponse)
@@ -57,11 +56,30 @@ async def upload(
     db.add(job)
     await db.flush()
 
-    if len(content) > _SYNC_SIZE_LIMIT:
-        # TODO: write to S3 + enqueue `ingest_file` for the streaming worker path.
-        job.status = "queued_async"
+    settings = get_settings()
+    if len(content) > settings.ingest_sync_size_limit:
+        # Large file → S3 + async worker (streaming parse, chunked insert), so the API pod
+        # never OOMs. The request returns a job_id immediately (edge #21).
+        filename = file.filename or "upload.csv"
+        s3_key = f"uploads/{job.id}/{filename}"
+        await get_object_store().upload_bytes(
+            s3_key, content, content_type=file.content_type or "text/csv"
+        )
+        job.s3_key = s3_key
+        job.status = "pending"
         await db.commit()
-        log.info("ingest_deferred_large_file", job_id=str(job.id), bytes=len(content))
+        await get_queue().publish(
+            settings.ingest_stream,
+            {
+                "job_id": str(job.id),
+                "s3_key": s3_key,
+                "campaign_id": str(campaign.id),
+                "default_country_code": default_country_code,
+                "filename": filename,
+            },
+            idempotency_key=f"ingest:{job.id}",
+        )
+        log.info("ingest_enqueued_large_file", job_id=str(job.id), bytes=len(content))
         return UploadResponse(job_id=job.id, campaign_id=campaign.id, status=job.status)
 
     result = parse_contacts(file.filename or "upload.csv", content, default_country_code)

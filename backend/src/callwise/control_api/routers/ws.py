@@ -13,7 +13,7 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from callwise.control_api.security import decode_token
-from callwise.events import feed_channel
+from callwise.events import feed_channel, transcript_channel
 from callwise.logging import get_logger
 from callwise.redis_pool import get_redis
 
@@ -68,11 +68,48 @@ async def ws_events(websocket: WebSocket, token: str | None = None) -> None:
 
 
 @router.websocket("/ws/transcripts")
-async def ws_transcripts(websocket: WebSocket) -> None:
-    await websocket.accept()
-    # TODO: stream live transcript turns for an in-progress call (LiveKit path).
+async def ws_transcripts(
+    websocket: WebSocket, token: str | None = None, session_id: str | None = None
+) -> None:
+    """Stream live transcript turns for an in-progress call (LiveKit path publishes to the
+    `transcript:{session_id}` Redis channel)."""
+    if not token or not session_id:
+        await websocket.close(code=4401)
+        return
     try:
+        decode_token(token)
+    except Exception:  # noqa: BLE001
+        await websocket.close(code=4401)
+        return
+
+    await websocket.accept()
+    pubsub = get_redis().pubsub()
+    channel = transcript_channel(session_id)
+    await pubsub.subscribe(channel)
+
+    async def pump() -> None:
+        async for message in pubsub.listen():
+            if message.get("type") != "message":
+                continue
+            data = message["data"]
+            await websocket.send_text(data.decode() if isinstance(data, bytes) else data)
+
+    async def drain() -> None:
         while True:
             await websocket.receive_text()
+
+    pump_task = asyncio.create_task(pump())
+    drain_task = asyncio.create_task(drain())
+    try:
+        await asyncio.wait({pump_task, drain_task}, return_when=asyncio.FIRST_COMPLETED)
     except WebSocketDisconnect:
-        log.info("ws_transcripts_disconnected")
+        pass
+    finally:
+        for task in (pump_task, drain_task):
+            task.cancel()
+        try:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+        log.info("ws_transcripts_closed", session=session_id)

@@ -11,6 +11,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from callwise.config import get_settings
 from callwise.db.models import CallSession
 from callwise.domain.snapshots import load_snapshot
 from callwise.providers.conversation.factory import get_conversation_provider
@@ -43,9 +44,22 @@ async def call_context(db: DbSession, token: str = Query(...)) -> dict:
 
 @router.get("/exotel/connect-params")
 async def connect_params(db: DbSession, token: str = Query(...)) -> dict:
-    """SIP connect params — short keys to stay under the ~200-byte header limit."""
+    """Minimal SIP connect params for the bridge — short keys to stay under the ~200-byte
+    header limit (PRD §11.2). Only routing essentials; full context is fetched separately."""
     sid = verify_context_token(token)
     if sid is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or expired context token")
-    # TODO: return minimal SIP routing params for the bridge.
-    return {"sid": sid}
+
+    sess = await db.get(CallSession, uuid.UUID(sid))
+    snapshot = (
+        await load_snapshot(db, sess.context_snapshot_id)
+        if sess and sess.context_snapshot_id
+        else None
+    )
+    settings = get_settings()
+    # Short keys on purpose: s=session, a=agent, l=language.
+    return {
+        "s": sid,
+        "a": (snapshot.agent_id if snapshot else None) or settings.elevenlabs_agent_id or "",
+        "l": snapshot.language if snapshot else "en",
+    }

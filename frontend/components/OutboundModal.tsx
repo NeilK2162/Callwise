@@ -1,68 +1,115 @@
 "use client";
 
 import { useState } from "react";
-import { X, PhoneOutgoing } from "lucide-react";
+import { Check, PhoneOutgoing, X } from "lucide-react";
 import { startOutbound } from "@/lib/api";
+
+type Phase = "idle" | "calling" | "done" | "error";
 
 export function OutboundModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
-  const [status, setStatus] = useState<"idle" | "calling" | "done" | "error">("idle");
+  const [phase, setPhase] = useState<Phase>("idle");
 
   if (!open) return null;
 
+  function resetAndClose() {
+    setPhase("idle");
+    setPhone("");
+    setName("");
+    onClose();
+  }
+
   async function trigger() {
-    setStatus("calling");
+    setPhase("calling");
     const { ok } = await startOutbound(phone, name || undefined);
-    setStatus(ok ? "done" : "error");
+    setPhase(ok ? "done" : "error");
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-ink-900/40" onClick={onClose} />
-      <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
-        <button onClick={onClose} className="absolute right-4 top-4 text-ink-500 hover:text-ink-900">
-          <X className="h-5 w-5" />
-        </button>
-        <div className="mb-4 flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-50 text-brand-600">
-            <PhoneOutgoing className="h-4 w-4" />
-          </div>
-          <h2 className="text-lg font-semibold text-ink-900">Start Outbound Call</h2>
-        </div>
-
-        <label className="mb-1 block text-xs font-medium text-ink-500">Phone number</label>
-        <input
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="+91 ……"
-          className="mb-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-        />
-        <label className="mb-1 block text-xs font-medium text-ink-500">Name (optional)</label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Customer name"
-          className="mb-4 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-        />
-
-        <button
-          onClick={trigger}
-          disabled={!phone || status === "calling"}
-          className="w-full rounded-lg bg-brand-500 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
-        >
-          {status === "calling" ? "Dialing…" : "Call now"}
+    <div className="modal-scrim" onClick={resetAndClose} role="presentation">
+      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <button type="button" className="modal-x" onClick={resetAndClose} aria-label="Close">
+          <X size={18} />
         </button>
 
-        {status === "done" && (
-          <p className="mt-3 text-center text-sm text-emerald-600">
-            Call queued — the outcome will appear in the feed.
-          </p>
+        {phase === "idle" && (
+          <>
+            <div className="ob-icon">
+              <PhoneOutgoing size={22} strokeWidth={2} />
+            </div>
+            <h2 className="ob-title">Start outbound call</h2>
+            <p className="ob-desc">
+              Enter a number and Callwise will dial through the same governed path as campaign
+              calls — outcome lands in the feed automatically.
+            </p>
+            <label className="ob-label" htmlFor="ob-phone">
+              Phone number
+            </label>
+            <input
+              id="ob-phone"
+              className="ob-input"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+91 ……"
+            />
+            <label className="ob-label" htmlFor="ob-name">
+              Name <span className="ob-opt">(optional)</span>
+            </label>
+            <input
+              id="ob-name"
+              className="ob-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Customer name"
+            />
+            <button
+              type="button"
+              className="btn-fill ob-go"
+              onClick={trigger}
+              disabled={!phone.trim()}
+            >
+              Call now
+            </button>
+          </>
         )}
-        {status === "error" && (
-          <p className="mt-3 text-center text-sm text-amber-600">
-            Backend not connected — this is a demo trigger.
-          </p>
+
+        {phase === "calling" && (
+          <div className="ob-done">
+            <p className="ob-status" style={{ justifyContent: "center", display: "flex", gap: 8 }}>
+              <span className="ob-ring" /> Dialing…
+            </p>
+            <p className="ob-num">{phone}</p>
+          </div>
+        )}
+
+        {phase === "done" && (
+          <div className="ob-done">
+            <div className="ob-check">
+              <Check size={28} strokeWidth={2.5} />
+            </div>
+            <h2 className="ob-title">Call queued</h2>
+            <p className="ob-desc">The outcome will appear in your feed in a few seconds.</p>
+            <span className="badge badge-booked">
+              <span className="dt" /> Queued for dial
+            </span>
+            <button type="button" className="btn-fill ob-go" onClick={resetAndClose}>
+              Back to feed
+            </button>
+          </div>
+        )}
+
+        {phase === "error" && (
+          <div className="ob-done">
+            <h2 className="ob-title">Could not queue call</h2>
+            <p className="ob-desc">
+              Backend not connected — start the API stack or use demo seed data offline.
+            </p>
+            <p className="ob-err">Check docker compose / NEXT_PUBLIC_API_BASE_URL</p>
+            <button type="button" className="btn-soft ob-go" onClick={() => setPhase("idle")}>
+              Try again
+            </button>
+          </div>
         )}
       </div>
     </div>

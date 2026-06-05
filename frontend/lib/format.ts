@@ -41,3 +41,21 @@ const OUTCOME_STYLES: Record<Outcome, { badge: string; emoji: string }> = {
 export function outcomeStyle(o: Outcome | null) {
   return o ? OUTCOME_STYLES[o] : { badge: "bg-slate-100 text-slate-500 ring-slate-500/20", emoji: "•" };
 }
+
+/** CSS badge variant class from the integrated dashboard design. */
+export function outcomeBadgeClass(o: Outcome | null): string {
+  switch (o) {
+    case "appointment_booked":
+      return "badge-booked";
+    case "callback_needed":
+      return "badge-callback";
+    case "question_answered":
+      return "badge-answered";
+    case "voicemail":
+      return "badge-voicemail";
+    case "opt_out":
+      return "badge-optout";
+    default:
+      return "badge-muted";
+  }
+}

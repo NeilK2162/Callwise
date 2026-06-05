@@ -1,8 +1,25 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Hanken_Grotesk, IBM_Plex_Mono, Newsreader } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const hanken = Hanken_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  weight: ["400", "500", "600", "700", "800"],
+});
+
+const newsreader = Newsreader({
+  subsets: ["latin"],
+  variable: "--font-serif",
+  weight: ["400", "500"],
+  style: ["normal", "italic"],
+});
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  weight: ["400", "500"],
+});
 
 export const metadata: Metadata = {
   title: "Callwise — Never miss a customer call",
@@ -12,8 +29,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className="font-sans">{children}</body>
+    <html
+      lang="en"
+      className={`${hanken.variable} ${newsreader.variable} ${plexMono.variable}`}
+    >
+      <body>{children}</body>
     </html>
   );
 }
