@@ -27,6 +27,49 @@ jobs:
       - name: Tests
         run: uv run pytest -q
 
+  # The mandatory idempotency suite (PRD §16.1) against ephemeral Postgres + Redis.
+  integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: callwise
+          POSTGRES_PASSWORD: callwise
+          POSTGRES_DB: callwise
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U callwise"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      CALLWISE_IT_DB: "1"
+      DATABASE_URL: postgresql+asyncpg://callwise:callwise@localhost:5432/callwise
+      DATABASE_URL_DIRECT: postgresql+asyncpg://callwise:callwise@localhost:5432/callwise
+      REDIS_URL: redis://localhost:6379/0
+      CALLWISE_TEST_REDIS_URL: redis://localhost:6379/15
+      JWT_SECRET: ci-only-secret-which-is-definitely-32-characters
+      CONTEXT_TOKEN_SECRET: ci-only-secret-which-is-definitely-32-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.5.13"
+      - run: uv python install 3.12
+      - run: uv sync --dev
+      - name: Migrate
+        run: uv run alembic upgrade head
+      - name: Idempotency suite
+        run: uv run pytest tests/integration -q
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -43,7 +86,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    needs: [backend, integration, frontend]
     if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4

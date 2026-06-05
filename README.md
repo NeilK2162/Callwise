@@ -97,13 +97,43 @@ feed looks alive on first load even without the backend running.
 > **Initiations are elastic; live calls are sacred.** Under stress, the system stops
 > *starting* new calls (sheds load at the queue) but never drops a call already in
 > progress and never loses its record.
+>
+> **Spend tokens only where they change the outcome.** One LLM call per answered call —
+> classification + extraction + summary together, on a trimmed transcript, behind a
+> per-minute token budget and a per-campaign spend ceiling (PRD §19; summarized in
+> [`docs/architecture.md`](docs/architecture.md)).
 
 ---
 
 ## Status
 
-🚧 **Scaffold.** Directory structure, configuration, the data model, the reliability
-primitives (governors, idempotency, outbox, backoff), provider interfaces, both API
-apps, the worker loops, and the demo frontend are in place. Endpoint bodies and provider
-integrations are marked with `TODO` and wired to working interfaces. See the
-[rollout plan](docs/architecture.md) for phasing.
+**Working end-to-end (mock stack, no external creds).** Trigger a call from the dashboard
+and watch a tagged query card slide into the feed in real time:
+
+`docker compose up --build` → [dashboard](http://localhost:3000/dashboard) → **Start
+Outbound Call** → contact is created → dialer claims + governed-dispatches → the mock
+provider simulates the PSTN lifecycle → webhook → verification (one LLM call) → live WS
+push → card appears. Seeded demo data + auto-login mean the feed is alive on first load.
+
+**Providers implemented against official docs/MCP connectors:**
+
+| Layer | Real | Stub |
+|---|---|---|
+| Telephony | mock · **Exotel** · **Twilio** (calls.create + AMD + real `X-Twilio-Signature`) | Plivo, Telnyx |
+| Conversation | mock · **ElevenLabs** (webhook + `t,v0` HMAC) · **LiveKit + Soniox** (agent runtime) | — |
+| LLM | mock · **OpenAI / Azure** (Structured Outputs + caching + escalation) | Anthropic |
+
+See [`docs/vendors.md`](docs/vendors.md) for the full vendor → status → connector matrix.
+
+**Cost & efficiency** (PRD §19): single-call verify+summary, prompt caching, output
+caps, transcript trimming, no-LLM short-circuits, cheap-model-with-escalation, a TPM
+token-budget limiter, and per-campaign spend-ceiling auto-pause.
+
+**Compliance:** calling-window (TCPA/TRAI), cross-campaign DND suppression, opt-out.
+
+**Validated:** `ruff` clean · unit suite green (incl. governor/redlock/state tests against
+real Redis) · frontend `next build` passes · the **idempotency suite runs in CI** against
+Postgres + Redis service containers (`.github/workflows/ci.yml`).
+
+**Still stubbed:** Anthropic adapter, S3 presigned URLs, Plivo/Telnyx, Grafana dashboards.
+See the [rollout plan](docs/architecture.md) for phasing.

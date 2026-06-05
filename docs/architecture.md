@@ -65,6 +65,25 @@ harness. Switch via `TELEPHONY_PROVIDER` / `CONVERSATION_PROVIDER` / `LLM_PROVID
 See [`vendors.md`](vendors.md) for every external vendor, implementation status, and
 official documentation URLs.
 
+## Cost & token efficiency
+
+The LLM verification call is the dominant variable cost at scale, so it's designed lean
+(full detail in PRD §19):
+
+- **One call per answered call** — classification, slot extraction, and the one-line
+  summary come from a single Structured-Outputs completion (no separate summarize call).
+- **Skip the LLM when the answer is free** — empty/agent-only transcripts and
+  no-answer/busy/voicemail/failed never reach the model; ElevenLabs' provider summary is
+  reused.
+- **Prompt caching** — the static system+schema prefix is sent first so the provider
+  caches it across the thousands of calls/min; **output is capped** (`LLM_MAX_OUTPUT_TOKENS`).
+- **Transcript trimming** — long calls keep only the decision-relevant turns.
+- **Cheap model + escalate on low confidence** — verify with a small model, re-verify with
+  a strong one only when unsure.
+- **Spend governors** — a Redis **TPM token-budget limiter** (`governors/token_budget.py`)
+  queues under surge, and `response.usage` accrues into a **per-campaign spend ceiling**
+  that auto-pauses the campaign.
+
 ## Rollout
 
 | Phase | Scope | Exit criteria |

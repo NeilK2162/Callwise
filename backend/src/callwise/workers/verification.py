@@ -14,7 +14,7 @@ from sqlalchemy import select, update
 
 from callwise.config import get_settings
 from callwise.db.base import get_sessionmaker
-from callwise.db.enums import CallStatus, ContactStatus, VerificationOutcome
+from callwise.db.enums import CallStatus, CampaignStatus, ContactStatus, VerificationOutcome
 from callwise.db.models import (
     CallSession,
     Campaign,
@@ -28,8 +28,9 @@ from callwise.domain.snapshots import load_snapshot
 from callwise.domain.suppression import suppress
 from callwise.domain.verification import verify_transcript
 from callwise.events import publish_card_event
+from callwise.governors.token_budget import TokenBudgetLimiter
 from callwise.logging import bind_call_context, get_logger
-from callwise.observability.metrics import DIALS_FAILED, VERIFICATION_CONFIDENCE
+from callwise.observability.metrics import COST_MICROS, DIALS_FAILED, VERIFICATION_CONFIDENCE
 from callwise.orchestration import enqueue_single_dial
 from callwise.providers.conversation.elevenlabs import session_id_from_payload
 from callwise.providers.conversation.factory import get_conversation_provider
@@ -44,6 +45,12 @@ log = get_logger(__name__)
 
 # Terminal call statuses that retry (within attempt limits) vs. those that don't.
 _RETRYABLE_STATUSES = {CallStatus.no_answer, CallStatus.busy}
+
+
+def _estimate_tokens(expected: dict, turns: list[dict], max_output: int) -> int:
+    """Rough token estimate (~4 chars/token) for the TPM budget + spend accrual (PRD §19)."""
+    chars = len(str(expected)) + sum(len(str(t.get("text", ""))) for t in turns)
+    return chars // 4 + 200 + max_output  # prompt overhead + capped output
 
 
 async def _handle_terminal_status(db, sess: CallSession, status_str: str) -> None:
@@ -197,17 +204,46 @@ async def handle_verification(msg: Message) -> None:
             await _handle_terminal_status(db, sess, status_str)
             return
 
-        # 1) Transcript assembly (idempotent: one transcript row per session).
+        # --- Transcription path: parse → verify (ONE LLM call) → persist (PRD §19) ---
+        settings = get_settings()
         parsed = conversation.parse_post_call(raw)
-        existing = await db.scalar(
-            select(Transcript).where(Transcript.call_session_id == sess.id)
+
+        snapshot = (
+            await load_snapshot(db, sess.context_snapshot_id)
+            if sess.context_snapshot_id
+            else None
         )
+        expected = snapshot.custom_fields if snapshot else {}
+        language = snapshot.language if snapshot else "en"
+
+        # Gate LLM spend on the per-minute token budget (queues under surge, never drops).
+        has_customer_speech = any(
+            t.get("role") == "customer" and str(t.get("text", "")).strip() for t in parsed.turns
+        )
+        est_tokens = _estimate_tokens(expected, parsed.turns, settings.llm_max_output_tokens)
+        if has_customer_speech:
+            await TokenBudgetLimiter(get_redis(), settings.llm_tokens_per_minute_budget).acquire(
+                est_tokens
+            )
+
+        # One call: classification + extraction + summary (transcript already trimmed).
+        result = await verify_transcript(llm, expected=expected, turns=parsed.turns, language=language)
+        confidence = float(result.get("confidence", 0.0))
+        try:
+            outcome = VerificationOutcome(result.get("outcome", "undetermined"))
+        except ValueError:
+            outcome = VerificationOutcome.undetermined
+        VERIFICATION_CONFIDENCE.observe(confidence)
+
+        # Transcript + recording (idempotent). Prefer the provider summary (free); else the
+        # summary from the verify call — never a separate summarization request.
+        existing = await db.scalar(select(Transcript).where(Transcript.call_session_id == sess.id))
         if existing is None:
             db.add(
                 Transcript(
                     call_session_id=sess.id,
                     turns=parsed.turns,
-                    summary=parsed.summary,
+                    summary=parsed.summary or result.get("summary"),
                 )
             )
             if parsed.recording_url:
@@ -222,30 +258,8 @@ async def handle_verification(msg: Message) -> None:
         if parsed.duration_s is not None:
             await advance_call_status(db, session_id=sess.id, new_status=CallStatus.completed)
             await db.execute(
-                update(CallSession)
-                .where(CallSession.id == sess.id)
-                .values(duration_s=parsed.duration_s)
+                update(CallSession).where(CallSession.id == sess.id).values(duration_s=parsed.duration_s)
             )
-        await db.commit()
-
-        # 2) Verification (scoped to THIS customer + THIS call only).
-        snapshot = (
-            await load_snapshot(db, sess.context_snapshot_id)
-            if sess.context_snapshot_id
-            else None
-        )
-        expected = snapshot.custom_fields if snapshot else {}
-        language = snapshot.language if snapshot else "en"
-        result = await verify_transcript(
-            llm, expected=expected, turns=parsed.turns, language=language
-        )
-
-        confidence = float(result.get("confidence", 0.0))
-        try:
-            outcome = VerificationOutcome(result.get("outcome", "undetermined"))
-        except ValueError:
-            outcome = VerificationOutcome.undetermined
-        VERIFICATION_CONFIDENCE.observe(confidence)
 
         await upsert_verification(
             db,
@@ -258,15 +272,11 @@ async def handle_verification(msg: Message) -> None:
             result=result,
         )
 
-        # 3) Apply outcome tags to the contact (idempotent write). An opt-out is terminal
-        # and is suppressed across ALL of the owner's campaigns (PRD §14.2, edge #43).
+        # Apply outcome to the contact; opt-out → suppress across ALL campaigns (edge #43).
         opted_out = outcome is VerificationOutcome.opt_out
         contact = await db.get(Contact, sess.contact_id)
-        owner_id = await db.scalar(
-            select(Campaign.owner_id)
-            .join(Contact, Contact.campaign_id == Campaign.id)
-            .where(Contact.id == sess.contact_id)
-        )
+        campaign = await db.get(Campaign, contact.campaign_id) if contact else None
+        owner_id = campaign.owner_id if campaign else None
         await db.execute(
             update(Contact)
             .where(Contact.id == sess.contact_id)
@@ -280,7 +290,15 @@ async def handle_verification(msg: Message) -> None:
         if opted_out and owner_id is not None and contact is not None:
             await suppress(db, owner_id, contact.phone_e164, reason="opt_out")
 
-        # Emit the domain event exactly-once for downstream consumers.
+        # Accrue LLM spend; auto-pause the campaign at its ceiling (PRD §19.3).
+        if campaign is not None and has_customer_speech:
+            cost_micros = round(est_tokens / 1000 * settings.llm_cost_micros_per_1k_tokens)
+            campaign.spent_micros = (campaign.spent_micros or 0) + cost_micros
+            COST_MICROS.labels(campaign=str(campaign.id)).inc(cost_micros)
+            if campaign.spend_ceiling_micros and campaign.spent_micros >= campaign.spend_ceiling_micros:
+                campaign.status = CampaignStatus.paused
+                log.warning("campaign_spend_ceiling_reached", campaign_id=str(campaign.id))
+
         await enqueue_outbox(
             db,
             aggregate_id=sess.id,
