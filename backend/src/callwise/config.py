@@ -103,13 +103,23 @@ class Settings(BaseSettings):
     # --- LLM creds ---
     azure_openai_endpoint: str | None = None
     azure_openai_api_key: str | None = None
-    azure_openai_deployment: str | None = None
+    azure_openai_deployment: str | None = None  # cheap default model (deployment name)
+    azure_openai_escalation_deployment: str | None = None  # strong model for low-confidence
     azure_openai_api_version: str = "2024-08-01-preview"
     openai_api_key: str | None = None
-    openai_model: str = "gpt-4o-2024-08-06"  # snapshot supporting Structured Outputs
+    # Verify with a cheap model by default; escalate to a strong one only on low confidence.
+    openai_model: str = "gpt-4o-mini"  # supports Structured Outputs; ~15-30x cheaper
+    openai_escalation_model: str | None = None  # e.g. "gpt-4o-2024-08-06"
     openai_summarize_model: str = "gpt-4o-mini"
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-5"
+
+    # --- LLM cost controls (PRD §19) ---
+    llm_max_output_tokens: int = 400  # verification JSON is small; cap runaway generations
+    llm_confidence_escalation_threshold: float = 0.6  # below → re-verify with strong model
+    transcript_max_turns: int = 40  # trim long transcripts to the decision-relevant turns
+    transcript_max_chars_per_turn: int = 600
+    llm_cost_micros_per_1k_tokens: int = 200  # blended estimate for the spend-ceiling accrual
 
     # --- Webhook security ---
     webhook_timestamp_tolerance_seconds: int = 300

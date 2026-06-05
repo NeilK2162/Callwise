@@ -24,7 +24,15 @@ class OpenAIProvider(LLMProvider):
         self, *, system: str, user: str, schema: dict[str, Any], max_retries: int = 1
     ) -> dict[str, Any]:
         return await core.complete_json(
-            self._client, self._model, system=system, user=user, schema=schema, max_retries=max_retries
+            self._client,
+            self._model,
+            system=system,
+            user=user,
+            schema=schema,
+            max_retries=max_retries,
+            max_tokens=self._s.llm_max_output_tokens,
+            escalation_model=self._s.openai_escalation_model,
+            escalation_threshold=self._s.llm_confidence_escalation_threshold,
         )
 
     async def summarize(self, text: str, *, language: str = "en") -> str:

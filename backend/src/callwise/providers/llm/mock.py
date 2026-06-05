@@ -33,6 +33,7 @@ class MockLLMProvider(LLMProvider):
             "responder_type": "human",
             "confidence": 0.92,
             "extracted": {"service": "root canal", "date": "Sat 11AM"},
+            "summary": "Customer enquiry handled; outcome recorded.",
         }
 
     async def summarize(self, text: str, *, language: str = "en") -> str:
