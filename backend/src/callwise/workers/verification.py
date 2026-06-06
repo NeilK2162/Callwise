@@ -14,7 +14,13 @@ from sqlalchemy import select, update
 
 from callwise.config import get_settings
 from callwise.db.base import get_sessionmaker
-from callwise.db.enums import CallStatus, CampaignStatus, ContactStatus, VerificationOutcome
+from callwise.db.enums import (
+    CallDirection,
+    CallStatus,
+    CampaignStatus,
+    ContactStatus,
+    VerificationOutcome,
+)
 from callwise.db.models import (
     CallSession,
     Campaign,
@@ -209,6 +215,47 @@ async def _reverify(call_session_id: str) -> None:
         log.info("manual_reverify_done", outcome=outcome.value)
 
 
+async def _ensure_inbound_session(db, raw: dict) -> CallSession | None:
+    """Create an inbound Contact + CallSession for a caller-initiated call (PRD §0.2), so it
+    lands as a query card. Attributed to INBOUND_CAMPAIGN_ID, else the newest campaign."""
+    settings = get_settings()
+    campaign_id = None
+    if settings.inbound_campaign_id:
+        try:
+            campaign_id = uuid.UUID(settings.inbound_campaign_id)
+        except ValueError:
+            campaign_id = None
+    if campaign_id is None:
+        campaign_id = await db.scalar(
+            select(Campaign.id).order_by(Campaign.created_at.desc()).limit(1)
+        )
+    if campaign_id is None:
+        return None  # nothing to attribute the inbound call to
+
+    contact = Contact(
+        campaign_id=campaign_id,
+        phone_e164=str(raw.get("from_number") or "unknown")[:20],
+        status=ContactStatus.in_progress,
+    )
+    db.add(contact)
+    await db.flush()
+    try:
+        sid = uuid.UUID(raw["call_session_id"])
+    except (KeyError, ValueError):
+        sid = uuid.uuid4()
+    sess = CallSession(
+        id=sid,
+        contact_id=contact.id,
+        direction=CallDirection.inbound,
+        provider="livekit",
+        provider_call_id=raw.get("provider_call_id"),
+        status=CallStatus.in_progress,
+    )
+    db.add(sess)
+    await db.commit()
+    return sess
+
+
 async def handle_verification(msg: Message) -> None:
     provider = msg.payload.get("provider", "")
     if provider == "reverify":
@@ -228,6 +275,10 @@ async def handle_verification(msg: Message) -> None:
         raw = event.raw_payload or {}
 
         sess = await _resolve_session(db, provider, raw)
+        if sess is None and provider == "livekit" and raw.get("direction") == "inbound":
+            # Inbound call (caller dialed us) — no pre-created session. Create one so the
+            # call becomes a query card, attributed to the inbound campaign.
+            sess = await _ensure_inbound_session(db, raw)
         if sess is None:
             log.warning("verify_session_unresolved", event_id=event_id, provider=provider)
             return  # reconciler will retry correlation; never crash the worker
@@ -277,6 +328,26 @@ async def handle_verification(msg: Message) -> None:
             outcome = VerificationOutcome(result.get("outcome", "undetermined"))
         except ValueError:
             outcome = VerificationOutcome.undetermined
+
+        # The agent's own signals are authoritative — they reflect what actually happened on
+        # the call, so they override the LLM's transcript read (PRD §12 edge cases).
+        result.setdefault("extracted", {})
+        booking, message = raw.get("booking"), raw.get("message")
+        if raw.get("opted_out"):
+            outcome, confidence = VerificationOutcome.opt_out, 1.0
+        elif booking:
+            outcome = VerificationOutcome.appointment_booked
+            result["extracted"]["booking_uid"] = booking.get("uid")
+            result["extracted"]["booked_for"] = booking.get("start")
+            confidence = max(confidence, 0.99)
+        elif message:
+            outcome = VerificationOutcome.callback_needed
+            result["extracted"]["callback_reason"] = message.get("reason")
+            if message.get("details"):
+                result["extracted"]["details"] = message.get("details")
+            if message.get("callback_window"):
+                result["extracted"]["callback_window"] = message.get("callback_window")
+            confidence = max(confidence, 0.95)
         VERIFICATION_CONFIDENCE.observe(confidence)
 
         # Transcript + recording (idempotent). Prefer the provider summary (free); else the

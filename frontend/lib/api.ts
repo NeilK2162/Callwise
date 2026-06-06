@@ -1,5 +1,18 @@
-import { SEED_CARDS, SEED_SUMMARY } from "@/mocks/seed";
+import { DEMO_CARDS, DEMO_SUMMARY } from "@/lib/demo";
 import type { FilterKey, QueryCard, Summary } from "@/lib/types";
+
+const EMPTY_SUMMARY: Summary = {
+  calls_today: 0,
+  booked: 0,
+  callback_needed: 0,
+  missed: 0,
+  avg_duration_s: 0,
+};
+
+/** Opt-in demo mode: /dashboard?demo=1 renders curated sample data for screen-records. */
+export function isDemo(): boolean {
+  return typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1";
+}
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 // Demo auto-login keeps the dashboard friction-free (PRD §0.7: no login screen) while
@@ -61,36 +74,39 @@ export async function getFeed(
   filter: FilterKey,
   q: string,
 ): Promise<{ cards: QueryCard[]; live: boolean }> {
+  if (isDemo()) return { cards: filterCards(DEMO_CARDS, filter, q), live: false };
+
   const params = new URLSearchParams();
   if (filter === "needs_action") params.set("needs_action", "true");
   if (q) params.set("q", q);
   const live = await authedFetch<QueryCard[]>(`/api/reports/feed?${params.toString()}`);
-  if (live) {
-    let cards = live;
-    if (filter === "inbound") cards = cards.filter((c) => c.direction === "inbound");
-    if (filter === "outbound") cards = cards.filter((c) => c.direction === "outbound");
-    return { cards, live: true };
-  }
+  if (!live) return { cards: [], live: false }; // backend down → real empty state, no mock data
+  let cards = live;
+  if (filter === "inbound") cards = cards.filter((c) => c.direction === "inbound");
+  if (filter === "outbound") cards = cards.filter((c) => c.direction === "outbound");
+  return { cards, live: true };
+}
 
-  // Seed fallback with client-side filtering so the demo works offline.
-  let cards = SEED_CARDS;
+function filterCards(all: QueryCard[], filter: FilterKey, q: string): QueryCard[] {
+  let cards = all;
   if (filter === "inbound") cards = cards.filter((c) => c.direction === "inbound");
   if (filter === "outbound") cards = cards.filter((c) => c.direction === "outbound");
   if (filter === "needs_action") cards = cards.filter((c) => c.outcome === "callback_needed");
   if (q) {
-    const needle = q.toLowerCase();
+    const n = q.toLowerCase();
     cards = cards.filter(
       (c) =>
-        (c.customer_name ?? "").toLowerCase().includes(needle) ||
-        (c.summary ?? "").toLowerCase().includes(needle) ||
-        c.phone_masked.includes(needle),
+        (c.customer_name ?? "").toLowerCase().includes(n) ||
+        (c.summary ?? "").toLowerCase().includes(n) ||
+        c.phone_masked.includes(n),
     );
   }
-  return { cards, live: false };
+  return cards;
 }
 
 export async function getSummary(): Promise<Summary> {
-  return (await authedFetch<Summary>("/api/reports/summary")) ?? SEED_SUMMARY;
+  if (isDemo()) return DEMO_SUMMARY;
+  return (await authedFetch<Summary>("/api/reports/summary")) ?? EMPTY_SUMMARY;
 }
 
 export async function startOutbound(phone: string, name?: string): Promise<{ ok: boolean }> {
@@ -122,4 +138,10 @@ export function connectFeedSocket(onEvent: (msg: unknown) => void): () => void {
     closed = true;
     ws?.close();
   };
+}
+
+/** Presigned playback URL for a call's recording (null if none / backend unreachable). */
+export async function getRecordingUrl(callSessionId: string): Promise<string | null> {
+  const res = await authedFetch<{ url: string }>(`/api/call_sessions/${callSessionId}/recording`);
+  return res?.url ?? null;
 }

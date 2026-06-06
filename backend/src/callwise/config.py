@@ -100,11 +100,25 @@ class Settings(BaseSettings):
     elevenlabs_api_key: str | None = None
     elevenlabs_agent_id: str | None = None
     elevenlabs_webhook_secret: str | None = None
+    elevenlabs_voice_id: str = "EXAVITQu4vr4xnSDxMaL"  # agent TTS voice (ElevenLabs voice id)
     livekit_url: str | None = None
     livekit_api_key: str | None = None
     livekit_api_secret: str | None = None
     livekit_agent_name: str = "callwise-agent"
     soniox_api_key: str | None = None  # Soniox STT (LiveKit path); plugin reads SONIOX_API_KEY
+
+    # --- Voice agent (LiveKit: Soniox STT → LLM → ElevenLabs TTS) ---
+    agent_llm_provider: str = "openai"  # openai | anthropic (the conversation brain)
+    agent_llm_model: str = "gpt-4o-mini"
+    clinic_name: str = "Bright Smile Dental"
+    inbound_campaign_id: str | None = None  # attribute inbound calls to this campaign
+
+    # --- Booking / scheduler (Cal.com live booking) ---
+    calcom_api_key: str | None = None
+    calcom_event_type_id: int | None = None
+    calcom_timezone: str = "Asia/Kolkata"
+    calcom_api_version_bookings: str = "2024-08-13"
+    calcom_api_version_slots: str = "2024-09-04"
 
     # --- LLM creds ---
     azure_openai_endpoint: str | None = None

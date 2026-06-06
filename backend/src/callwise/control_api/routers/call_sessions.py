@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
+from callwise.config import get_settings
 from callwise.control_api.deps import CurrentUser, DbSession, owned_or_404
 from callwise.control_api.schemas import (
     CallSessionOut,
@@ -14,7 +15,6 @@ from callwise.control_api.schemas import (
     OutboundCallRequest,
     VerificationOut,
 )
-from callwise.config import get_settings
 from callwise.db.enums import CallDirection, CampaignStatus, ContactStatus
 from callwise.db.models import (
     CallSession,

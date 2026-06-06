@@ -24,8 +24,8 @@ Cursor MCP servers) when implementing adapters, webhooks, or ops runbooks.
 |--------|------|--------|---------------|---------------|
 | **Exotel** | India PSTN, call-status webhooks, signed call-context for ConvAI | **Live** | `TELEPHONY_PROVIDER=exotel`, `providers/telephony/exotel.py`, `webhook_ingest/routers/exotel.py`, `context.py` | https://developer.exotel.com/ |
 | **Twilio** | PSTN, calls.create + AMD, status callbacks | **Live** | `TELEPHONY_PROVIDER=twilio`, `providers/telephony/twilio.py`, `webhook_ingest/routers/twilio.py` | https://www.twilio.com/docs · **Twilio MCP + `twilio-developer-kit` plugin** |
-| **Plivo** | PSTN (pluggable) | **Planned** | `TelephonyProvider.plivo` in `config.py` only | https://www.plivo.com/docs/ |
-| **Telnyx** | PSTN (pluggable) | **Planned** | `TelephonyProvider.telnyx` in `config.py` only | https://developers.telnyx.com/ |
+| **Plivo** | PSTN (pluggable) | **Live** | `TELEPHONY_PROVIDER=plivo`, `providers/telephony/plivo.py`, `PLIVO_*` | https://www.plivo.com/docs/voice/api/call |
+| **Telnyx** | PSTN (Call Control) | **Live** | `TELEPHONY_PROVIDER=telnyx`, `providers/telephony/telnyx.py`, `TELNYX_*` | https://developers.telnyx.com/ |
 | **Mock** | Local/dev simulated dial | **Live** | `TELEPHONY_PROVIDER=mock` (compose default) | — |
 
 Optional Python extra: `twilio` (`pyproject.toml` → `[project.optional-dependencies].telephony`).
@@ -55,7 +55,7 @@ mutable `ConversationState` checkpointed to Redis (`domain/state.py`).
 |--------|------|--------|---------------|---------------|
 | **Azure OpenAI** | Default production LLM (Structured Outputs) | **Live** | `LLM_PROVIDER=azure_openai`, `providers/llm/azure_openai.py`, `_openai_common.py` | https://platform.openai.com/docs · **OpenAI MCP** |
 | **OpenAI** | Alternative LLM (Structured Outputs) | **Live** | `LLM_PROVIDER=openai`, `providers/llm/openai.py`, `_openai_common.py` | https://platform.openai.com/docs · **OpenAI MCP** |
-| **Anthropic** | Alternative LLM | **Stub** | `LLM_PROVIDER=anthropic`, `providers/llm/anthropic.py` | https://docs.anthropic.com/ · `claude-api` skill |
+| **Anthropic** | Alternative LLM (tool-use JSON + prompt caching) | **Live** | `LLM_PROVIDER=anthropic`, `providers/llm/anthropic.py` | https://docs.anthropic.com/ · `claude-api` skill |
 | **Mock** | Deterministic verification in dev | **Live** | `LLM_PROVIDER=mock` (compose default) | — |
 
 Optional Python extras: `openai`, `anthropic` (`pyproject.toml` → `llm`).
@@ -71,7 +71,7 @@ Post-call pipeline: `domain/verification.py`, `workers/verification.py`.
 | **PostgreSQL** | System of record | **Ops** | `DATABASE_URL`, `DATABASE_URL_DIRECT`, `db/`, Alembic | https://www.postgresql.org/docs/ |
 | **PgBouncer** | Transaction pooling (required at scale) | **Ops** | `docker-compose.yml`, `infra/pgbouncer/`, PRD §15.3 | https://www.pgbouncer.org/ |
 | **Redis** | Streams queue, locks, governors, conversation state | **Ops** | `REDIS_URL`, `queue/`, `locks.py`, `governors/`, `redis_pool.py` | https://redis.io/docs/ |
-| **AWS S3** | Recordings, transcripts, upload artifacts | **Planned** (presign TODO) | `aioboto3`, `S3_*` env vars, `control_api/routers/recordings.py` | https://docs.aws.amazon.com/s3/ |
+| **AWS S3** | Recordings, transcripts, ingest artifacts | **Live** | `callwise/storage.py` (aioboto3), `S3_*`, presigned playback + transcript archive + async ingest | https://docs.aws.amazon.com/s3/ |
 | **MinIO** | S3-compatible store for local dev | **Ops** | `docker-compose.yml` service `minio` | https://min.io/docs/ |
 
 Production targets (PRD §15): **RDS** (Postgres), **ElastiCache** (Redis), **S3** (+ Glacier lifecycle).

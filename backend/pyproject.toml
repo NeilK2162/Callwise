@@ -40,7 +40,7 @@ dependencies = [
 telephony = ["twilio==9.4.1"]
 # LiveKit real-time agent path (Soniox STT → LLM → ElevenLabs TTS). The ElevenLabs ConvAI
 # path needs no SDK — we parse its webhooks + verify HMAC directly.
-conversation = ["livekit-agents[soniox,elevenlabs,silero,openai]~=1.5"]
+conversation = ["livekit-agents[soniox,elevenlabs,silero,openai,anthropic]~=1.5"]
 llm = ["anthropic==0.42.0", "openai==2.41.0"]
 
 [dependency-groups]

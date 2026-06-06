@@ -6,6 +6,7 @@ import os
 
 import pytest
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 
 def _redis_url() -> str:
@@ -14,12 +15,13 @@ def _redis_url() -> str:
 
 @pytest.fixture
 async def redis_client() -> Redis:
-    """Isolated Redis DB (default 15). Set CALLWISE_TEST_REDIS_URL to override."""
+    """Isolated Redis DB (default 15). Skips (not errors) when no broker is reachable —
+    redis-py raises redis.exceptions.ConnectionError, which is NOT an OSError subclass."""
     client: Redis = Redis.from_url(_redis_url(), decode_responses=True)
     try:
         if not await client.ping():
             pytest.skip("Redis ping failed")
-    except OSError:
+    except (RedisError, OSError):
         pytest.skip("Redis not available for governor/state tests")
     await client.flushdb()
     yield client

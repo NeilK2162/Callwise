@@ -4,17 +4,27 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { PhoneOutgoing, Search } from "lucide-react";
 import { SidebarRail } from "@/components/dashboard/SidebarRail";
+import { MorningBriefing } from "@/components/MorningBriefing";
 import { StatsBar } from "@/components/StatsBar";
 import { Filters } from "@/components/Filters";
 import { QueryCard } from "@/components/QueryCard";
 import { CardDetail } from "@/components/CardDetail";
 import { OutboundModal } from "@/components/OutboundModal";
-import { connectFeedSocket, getFeed, getSummary } from "@/lib/api";
-import { SEED_SUMMARY } from "@/mocks/seed";
+import { connectFeedSocket, getFeed, getSummary, isDemo } from "@/lib/api";
 import type { FilterKey, QueryCard as Card, Summary } from "@/lib/types";
 
+const EMPTY_SUMMARY: Summary = {
+  calls_today: 0,
+  booked: 0,
+  callback_needed: 0,
+  missed: 0,
+  avg_duration_s: 0,
+};
+
+const AGENT_NUMBER = process.env.NEXT_PUBLIC_AGENT_NUMBER ?? "+1 (555) 010-2024";
+
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<Summary>(SEED_SUMMARY);
+  const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [cards, setCards] = useState<Card[]>([]);
   const [filter, setFilter] = useState<FilterKey>("all");
   const [query, setQuery] = useState("");
@@ -23,8 +33,11 @@ export default function DashboardPage() {
   const [live, setLive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
+  const [demo, setDemo] = useState(false);
   const [newCardId, setNewCardId] = useState<string | null>(null);
   const prevTopId = useRef<string | null>(null);
+
+  useEffect(() => setDemo(isDemo()), []);
 
   useEffect(() => {
     getSummary().then(setSummary);
@@ -53,6 +66,8 @@ export default function DashboardPage() {
   }, []);
 
   const needsActionCount = cards.filter((c) => c.outcome === "callback_needed").length;
+  const chip = demo ? "Demo" : live ? "Live" : "Offline";
+  const isPristine = filter === "all" && !query;
 
   return (
     <div className="shell">
@@ -63,9 +78,9 @@ export default function DashboardPage() {
           <header className="top">
             <div className="top-l">
               <h1 className="top-title">Clinic Dashboard</h1>
-              <span className={`livechip${live ? " on" : ""}`}>
+              <span className={`livechip${live || demo ? " on" : ""}`}>
                 <span className="lc-dot" />
-                {live ? "Live" : "Demo data"}
+                {chip}
               </span>
             </div>
             <div className="top-r">
@@ -84,6 +99,8 @@ export default function DashboardPage() {
             </div>
           </header>
 
+          <MorningBriefing summary={summary} />
+
           <StatsBar summary={summary} />
 
           <Filters
@@ -94,12 +111,33 @@ export default function DashboardPage() {
           />
 
           <div className="feed">
-            {loading && cards.length === 0 && (
-              <div className="empty">Loading feed…</div>
+            {loading && cards.length === 0 && <div className="empty">Loading feed…</div>}
+
+            {!loading && cards.length === 0 && isPristine && (
+              <div className="onair">
+                <div className="onair-mark">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <h3 className="onair-h serif">Your receptionist is on air</h3>
+                <p className="onair-p">
+                  Call your Callwise number and your first query card lands here in seconds —
+                  answered, booked, tagged, and transcribed.
+                </p>
+                <a className="btn-fill" href={`tel:${AGENT_NUMBER.replace(/[^+\d]/g, "")}`}>
+                  <PhoneOutgoing size={16} strokeWidth={2} /> Call the agent
+                </a>
+                <p className="onair-num mono">{AGENT_NUMBER}</p>
+              </div>
             )}
-            {!loading && cards.length === 0 && (
+
+            {!loading && cards.length === 0 && !isPristine && (
               <div className="empty">No calls match this view yet.</div>
             )}
+
             {cards.map((card) => (
               <QueryCard
                 key={card.call_session_id}
