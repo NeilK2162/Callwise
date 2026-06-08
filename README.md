@@ -124,6 +124,126 @@ call). No mock/seed data in the live path.
 
 ---
 
+## Faster path for the demo: ElevenLabs Agent (hosted Qwen + TTS + turn-taking)
+
+The LiveKit setup above lets you **own the whole stack** (and keep Soniox STT). But for a
+*demo*, ElevenLabs' Agents platform wins on three axes at once — it hosts the **LLM**
+(`Qwen3-30b-a3b`, sub-150 ms time-to-first-sentence), the **TTS**, and a **turn-taking** model
+that's faster and more accurate than a hand-tuned LiveKit VAD loop, all co-located in one
+datacenter. The only thing you give up is configuring the tools in their portal instead of in
+code.
+
+**This is not throwaway.** ElevenLabs becomes a thin front-end: every tool is a webhook into
+*your* backend (`/api/v2/agent-tools/*` → `callwise.agent_tools`, the same logic the LiveKit
+agent runs), and the call still becomes a query card through the **same** post-call webhook +
+verify pipeline. To move to production you flip `CONVERSATION_PROVIDER` back to `livekit` —
+**zero** booking/pipeline code changes. (STT on this path is ElevenLabs' own; Soniox is used on
+the LiveKit path.)
+
+```
+ Caller ─PSTN─► Twilio number ─► ElevenLabs Agent (Qwen LLM · TTS · turn-taking)
+                                      │  mid-call tool calls (HTTPS + shared secret)
+                                      ▼
+              {BASE_URL}/api/v2/agent-tools/{check-availability,book-appointment,…}
+                                      │  → callwise.agent_tools → Cal.com (live booking)
+                                      ▼  outcome stashed by conversation_id (Redis)
+              on hangup: POST /api/v2/webhooks/elevenlabs (HMAC) ─► verify worker ─► query card
+```
+
+### What you actually need (and what you don't)
+
+The "go live" table near the top is the full **LiveKit** path. The ElevenLabs demo needs far
+less — most of it lives in the ElevenLabs portal, not your `.env`:
+
+| What | For | Goes in |
+|---|---|---|
+| **ElevenLabs** account + one Agent | the whole conversation — LLM (`Qwen3-30b-a3b`), TTS, STT, turn-taking, all hosted | ElevenLabs portal |
+| **Twilio** number + Account SID / Auth Token | the phone number | **the ElevenLabs portal** (import) — *not* your `.env` |
+| **Cal.com** API key + numeric event-type id | live booking | `.env` → `CALCOM_API_KEY`, `CALCOM_EVENT_TYPE_ID`, `CALCOM_TIMEZONE` |
+| **A secret you invent** (32+ chars) | auth on every agent→backend tool call | `.env` → `AGENT_TOOLS_SECRET` (same value in the portal tool header) |
+| **ElevenLabs post-call signing secret** | verify the post-call webhook | `.env` → `ELEVENLABS_WEBHOOK_SECRET` |
+| **A public URL** (cloudflared / ngrok) | so ElevenLabs can reach your tools + webhook | `.env` → `BASE_URL` |
+| Postgres · Redis · MinIO | data · queue/stash · recordings | local `docker compose` — **no keys** |
+
+**Optional — nicer cards, not required:** `OPENAI_API_KEY` with `LLM_PROVIDER=openai` gives
+richer auto-tagging/summaries on calls where no tool fired. Leave it at `LLM_PROVIDER=mock` and
+the demo still works perfectly — booking / callback / opt-out outcomes come from the agent's
+tool calls, and the card summary uses ElevenLabs' own transcript summary.
+
+**You do NOT need for this demo:** `LIVEKIT_*`, `SONIOX_API_KEY`, `ELEVEN_API_KEY` /
+`ELEVENLABS_VOICE_ID` in `.env` (the voice is chosen in the portal), or Twilio creds in `.env`.
+
+> **One required setting:** the verify worker parses post-call payloads with the configured
+> conversation provider — set **`CONVERSATION_PROVIDER=elevenlabs`** for the demo, or it will
+> try to parse ElevenLabs payloads with the wrong parser.
+
+Minimal `.env` for the demo:
+
+```bash
+APP_ENV=dev
+BASE_URL=https://<your-tunnel>.trycloudflare.com   # public URL ElevenLabs can reach
+CONVERSATION_PROVIDER=elevenlabs                    # so the verifier uses the ElevenLabs parser
+LLM_PROVIDER=mock                                   # or: openai (+ OPENAI_API_KEY) for richer tags
+CALCOM_API_KEY=cal_xxxxxxxx
+CALCOM_EVENT_TYPE_ID=123456
+CALCOM_TIMEZONE=Asia/Kolkata
+AGENT_TOOLS_SECRET=<32+ char random>               # also set as the tool header in the portal
+ELEVENLABS_WEBHOOK_SECRET=<from the ElevenLabs post-call webhook>
+INBOUND_CAMPAIGN_ID=<campaign uuid from /api/campaigns>   # optional; else the newest campaign
+# JWT_SECRET / CONTEXT_TOKEN_SECRET: dev defaults pass startup; set real 32+ char values for a public demo
+```
+
+### Setup (≈ 15 minutes)
+
+1. **Infra + API/workers, publicly reachable.** Do step 1 above, then expose the
+   webhook-ingest service so ElevenLabs can reach it and set `BASE_URL` to that URL:
+   ```bash
+   cloudflared tunnel --url http://localhost:8001     # or: ngrok http 8001
+   # put the https URL in .env as BASE_URL, then restart webhook-ingest + verification-worker
+   ```
+   Set `CALCOM_API_KEY` + `CALCOM_EVENT_TYPE_ID` (so booking works) and a strong
+   `AGENT_TOOLS_SECRET` (the shared secret below).
+
+2. **Create the agent** (ElevenLabs → Agents → create). Paste the receptionist policy from
+   [`docs/agent-conversation.md`](docs/agent-conversation.md) as the system prompt. Set
+   **LLM = `Qwen3-30b-a3b`**, **TTS voice = your `ELEVENLABS_VOICE_ID`** (use the
+   `eleven_flash_v2_5` model for lowest latency), language English.
+
+3. **Add four server tools** (Agent → Tools → Add tool → **Webhook**). Each is a `POST` to the
+   URL below with header `X-Callwise-Agent-Secret: <AGENT_TOOLS_SECRET>`. Give every tool a
+   `conversation_id` and `caller_id` parameter bound to the agent's **system variables** so
+   outcomes attach to the call and the desk gets a callback number:
+
+   | Tool (description for the LLM) | `POST {BASE_URL}` | Body parameters |
+   |---|---|---|
+   | **check_availability** — read the next open slots (caller is flexible) | `/api/v2/agent-tools/check-availability` | `preference?`, `conversation_id`, `caller_id` |
+   | **check_time** — is a *specific* requested time open? confirms it or offers the nearest alternatives | `/api/v2/agent-tools/check-time` | `desired_iso` (ISO-8601), `conversation_id`, `caller_id` |
+   | **book_appointment** — book after the caller confirms a slot + you read their name/email back | `/api/v2/agent-tools/book-appointment` | `name`, `email`, `slot_iso`, `conversation_id`, `caller_id` |
+   | **take_message** — no time / no email / reschedule / cancel / wants human / question | `/api/v2/agent-tools/take-message` | `name`, `reason`, `details?`, `callback_window?`, `conversation_id`, `caller_id` |
+   | **mark_do_not_contact** — "stop calling me" | `/api/v2/agent-tools/do-not-contact` | `conversation_id`, `caller_id` |
+
+   Bind `conversation_id = {{system__conversation_id}}` and `caller_id = {{system__caller_id}}`
+   (confirm the exact names in the portal's system-variables list). Each tool returns
+   `{"say": …}` — the line the agent speaks; `check_availability` / `check_time` also return
+   `slots[]` with the `slot_iso` to pass back into `book_appointment`. In the prompt, tell the
+   agent to call **check_time** when the caller names a specific time (e.g. "Thursday at 3")
+   and **check_availability** when they're flexible — `check_time` does a real point-in-time
+   Cal.com query for that day and either confirms it or offers the nearest open times.
+
+4. **Post-call webhook** (ElevenLabs → workspace webhooks → add `post_call_transcription`):
+   point it at `{BASE_URL}/api/v2/webhooks/elevenlabs`, copy the signing secret into
+   `ELEVENLABS_WEBHOOK_SECRET`, restart the verification worker. This is what turns the call
+   into a query card (with the real Cal.com booking uid, via the stashed outcome).
+
+5. **Connect the Twilio number** (ElevenLabs → Phone numbers → import from Twilio; provide your
+   Twilio SID/Token) and assign this agent for **inbound** calls. No SIP trunk to configure —
+   ElevenLabs manages the media.
+
+Now call the number. Same demo as below — the card lands via the ElevenLabs path instead of
+LiveKit, and `INBOUND_CAMPAIGN_ID` still controls attribution.
+
+---
+
 ## The demo (what a user actually experiences)
 
 1. **Call your Twilio number** from your phone.

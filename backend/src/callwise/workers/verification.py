@@ -12,6 +12,7 @@ import uuid
 
 from sqlalchemy import select, update
 
+from callwise.agent_tools import load_outcome
 from callwise.config import get_settings
 from callwise.db.base import get_sessionmaker
 from callwise.db.enums import (
@@ -215,9 +216,19 @@ async def _reverify(call_session_id: str) -> None:
         log.info("manual_reverify_done", outcome=outcome.value)
 
 
-async def _ensure_inbound_session(db, raw: dict) -> CallSession | None:
+async def _ensure_inbound_session(
+    db,
+    raw: dict,
+    *,
+    provider: str = "livekit",
+    from_number: str | None = None,
+    provider_call_id: str | None = None,
+) -> CallSession | None:
     """Create an inbound Contact + CallSession for a caller-initiated call (PRD §0.2), so it
-    lands as a query card. Attributed to INBOUND_CAMPAIGN_ID, else the newest campaign."""
+    lands as a query card. Attributed to INBOUND_CAMPAIGN_ID, else the newest campaign.
+    Orchestrator-neutral: works for the LiveKit agent and the ElevenLabs Agent alike. The
+    session's `provider_call_id` echoes the orchestrator's call id, so a redelivery/retry
+    correlates to this same session instead of creating a duplicate."""
     settings = get_settings()
     campaign_id = None
     if settings.inbound_campaign_id:
@@ -234,7 +245,7 @@ async def _ensure_inbound_session(db, raw: dict) -> CallSession | None:
 
     contact = Contact(
         campaign_id=campaign_id,
-        phone_e164=str(raw.get("from_number") or "unknown")[:20],
+        phone_e164=str(from_number or raw.get("from_number") or "unknown")[:20],
         status=ContactStatus.in_progress,
     )
     db.add(contact)
@@ -247,8 +258,8 @@ async def _ensure_inbound_session(db, raw: dict) -> CallSession | None:
         id=sid,
         contact_id=contact.id,
         direction=CallDirection.inbound,
-        provider="livekit",
-        provider_call_id=raw.get("provider_call_id"),
+        provider=provider,
+        provider_call_id=provider_call_id or raw.get("provider_call_id"),
         status=CallStatus.in_progress,
     )
     db.add(sess)
@@ -275,7 +286,23 @@ async def handle_verification(msg: Message) -> None:
         raw = event.raw_payload or {}
 
         sess = await _resolve_session(db, provider, raw)
-        if sess is None and provider == "livekit" and raw.get("direction") == "inbound":
+        el_stash: dict = {}
+        if provider == "elevenlabs":
+            # Outcomes the ElevenLabs agent recorded mid-call (book/message/opt-out), keyed by
+            # conversation_id — the authoritative record of what actually happened.
+            conversation_id = (raw.get("data", {}) or {}).get("conversation_id")
+            el_stash = await load_outcome(conversation_id)
+            if sess is None:
+                # Caller dialed the agent directly (no pre-created session) — make one so the
+                # call becomes a query card, attributed to the inbound campaign.
+                sess = await _ensure_inbound_session(
+                    db,
+                    raw,
+                    provider="elevenlabs",
+                    from_number=el_stash.get("caller_id"),
+                    provider_call_id=conversation_id,
+                )
+        elif sess is None and provider == "livekit" and raw.get("direction") == "inbound":
             # Inbound call (caller dialed us) — no pre-created session. Create one so the
             # call becomes a query card, attributed to the inbound campaign.
             sess = await _ensure_inbound_session(db, raw)
@@ -332,6 +359,15 @@ async def handle_verification(msg: Message) -> None:
         # The agent's own signals are authoritative — they reflect what actually happened on
         # the call, so they override the LLM's transcript read (PRD §12 edge cases).
         result.setdefault("extracted", {})
+        # ElevenLabs path: overlay the authoritative mid-call tool outcomes onto `raw` so the
+        # same override logic below applies regardless of which engine ran the call.
+        if el_stash:
+            if el_stash.get("opted_out"):
+                raw["opted_out"] = True
+            if el_stash.get("booking"):
+                raw["booking"] = el_stash["booking"]
+            if el_stash.get("message") and not raw.get("message"):
+                raw["message"] = el_stash["message"]
         booking, message = raw.get("booking"), raw.get("message")
         if raw.get("opted_out"):
             outcome, confidence = VerificationOutcome.opt_out, 1.0

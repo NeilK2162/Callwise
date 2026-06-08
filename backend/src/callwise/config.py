@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     clinic_name: str = "Bright Smile Dental"
     inbound_campaign_id: str | None = None  # attribute inbound calls to this campaign
 
+    # --- Agent server tools (ElevenLabs Agent orchestration path) ---
+    # Shared secret the ElevenLabs agent sends as `X-Callwise-Agent-Secret` on every tool
+    # call. Required outside dev. The agent's mid-call outcomes are stashed by conversation_id
+    # for this long so the post-call verifier can apply them to the card.
+    agent_tools_secret: str | None = None
+    agent_tools_outcome_ttl_seconds: int = 21_600  # 6h
+
     # --- Booking / scheduler (Cal.com live booking) ---
     calcom_api_key: str | None = None
     calcom_event_type_id: int | None = None

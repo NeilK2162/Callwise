@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 
@@ -44,7 +44,12 @@ class BookingUnavailable(BookingError):
 
 class BookingProvider(ABC):
     @abstractmethod
-    async def available_slots(self, *, days_ahead: int = 7, limit: int = 5) -> list[Slot]: ...
+    async def available_slots(
+        self, *, days_ahead: int = 7, limit: int = 5, on_date: date | None = None
+    ) -> list[Slot]:
+        """Open slots in the next `days_ahead` days — or, when `on_date` is given, only the
+        open slots on that one calendar day (to verify a caller's specific requested time)."""
+        ...
 
     @abstractmethod
     async def create_booking(
@@ -64,12 +69,19 @@ class CalComProvider(BookingProvider):
         self._event_type_id = settings.calcom_event_type_id
         self._tz = settings.calcom_timezone
 
-    async def available_slots(self, *, days_ahead: int = 7, limit: int = 5) -> list[Slot]:
-        now = datetime.now(UTC)
+    async def available_slots(
+        self, *, days_ahead: int = 7, limit: int = 5, on_date: date | None = None
+    ) -> list[Slot]:
+        if on_date is not None:
+            start_s, end_s = on_date.isoformat(), (on_date + timedelta(days=1)).isoformat()
+        else:
+            now = datetime.now(UTC)
+            start_s = now.strftime("%Y-%m-%d")
+            end_s = (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
         params = {
             "eventTypeId": self._event_type_id,
-            "start": now.strftime("%Y-%m-%d"),
-            "end": (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d"),
+            "start": start_s,
+            "end": end_s,
             "timeZone": self._tz,
         }
         headers = {
