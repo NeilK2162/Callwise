@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     base_url: str = "http://localhost:8001"
 
+    # --- CORS (dashboard browser → control-api: answers preflight, sets headers) ---
+    # Comma-separated allowed origins. "*" allows any origin — safe as the dev default because
+    # the dashboard authenticates with a Bearer token, not cookies. In prod set the dashboard's
+    # exact origin(s), e.g. "https://app.callwise.com,https://www.callwise.com".
+    cors_allow_origins: str = "*"
+
     # --- Database ---
     database_url: str = "postgresql+asyncpg://callwise:callwise@pgbouncer:6432/callwise"
     database_url_direct: str = "postgresql+asyncpg://callwise:callwise@postgres:5432/callwise"
@@ -69,6 +75,11 @@ class Settings(BaseSettings):
 
     # --- Object store ---
     s3_endpoint_url: str | None = None
+    # Browser-reachable endpoint used ONLY to sign presigned playback URLs. Workers reach MinIO
+    # at the in-cluster host (s3_endpoint_url, e.g. http://minio:9000), but the browser can't
+    # resolve that — so presigned URLs must be signed against e.g. http://localhost:9000. In
+    # prod this is the public S3/CDN origin. None → fall back to s3_endpoint_url.
+    s3_public_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
     s3_bucket: str = "callwise"
     s3_access_key_id: str | None = None
@@ -189,6 +200,23 @@ class Settings(BaseSettings):
         if len(v) < 32:
             raise ValueError("signing secret must be at least 32 characters (PRD §14.1)")
         return v
+
+    @field_validator("calcom_event_type_id", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v: object) -> object:
+        # Docker/compose injects "" for an unset optional; treat blank as None so an empty
+        # CALCOM_EVENT_TYPE_ID never crashes startup (it just means "Cal.com not configured").
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse `cors_allow_origins` into a list. Blank or "*" → allow any origin."""
+        raw = (self.cors_allow_origins or "").strip()
+        if raw in ("", "*"):
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
     @property
     def provider_rate_limits(self) -> dict[str, tuple[float, int]]:

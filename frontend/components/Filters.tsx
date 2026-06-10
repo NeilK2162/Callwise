@@ -30,6 +30,7 @@ export function Filters({
             type="button"
             onClick={() => onChange(t.key)}
             className={clsx("tab", active === t.key && "on")}
+            suppressHydrationWarning
           >
             {t.label}
             {t.key === "needs_action" && needsActionCount > 0 && (

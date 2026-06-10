@@ -17,13 +17,40 @@ export function fmtRelative(iso: string): string {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
+const DISPLAY_LOCALE = "en-US";
+
 export function fmtClock(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+  return new Date(iso).toLocaleString(DISPLAY_LOCALE, {
     hour: "2-digit",
     minute: "2-digit",
     month: "short",
     day: "numeric",
   });
+}
+
+/** Humanize an extracted-field key: "booked_for" → "Booked for". */
+export function fmtExtractedKey(key: string): string {
+  const s = key.replace(/_/g, " ").trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/** Render an extracted value; ISO timestamps (e.g. booked_for) become a readable local date. */
+export function fmtExtractedValue(value: unknown): string {
+  if (typeof value === "string" && ISO_DATETIME.test(value)) {
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleString(DISPLAY_LOCALE, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+  }
+  return String(value);
 }
 
 const OUTCOME_STYLES: Record<Outcome, { badge: string; emoji: string }> = {

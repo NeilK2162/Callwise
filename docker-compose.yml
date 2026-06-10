@@ -13,12 +13,25 @@ x-backend-env: &backend-env
   JWT_SECRET: dev-only-change-me-to-a-32+char-random-secret
   CONTEXT_TOKEN_SECRET: dev-only-change-me-context-signing-secret
   S3_ENDPOINT_URL: http://minio:9000
+  S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}   # browser-reachable host for presigned playback URLs
   S3_BUCKET: callwise
   S3_ACCESS_KEY_ID: callwise
   S3_SECRET_ACCESS_KEY: callwise123
-  TELEPHONY_PROVIDER: mock
-  CONVERSATION_PROVIDER: mock
-  LLM_PROVIDER: mock
+  TELEPHONY_PROVIDER: ${TELEPHONY_PROVIDER:-mock}
+  CONVERSATION_PROVIDER: ${CONVERSATION_PROVIDER:-mock}
+  LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}   # dashboard browser origin(s); "*" ok in dev (Bearer-token auth, no cookies)
+  # --- Demo overrides: read from .env via compose interpolation; blank/safe defaults keep pure-mock dev working ---
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  CALCOM_API_KEY: ${CALCOM_API_KEY:-}
+  CALCOM_EVENT_TYPE_ID: ${CALCOM_EVENT_TYPE_ID:-}
+  CALCOM_TIMEZONE: ${CALCOM_TIMEZONE:-Asia/Kolkata}
+  AGENT_TOOLS_SECRET: ${AGENT_TOOLS_SECRET:-}
+  ELEVENLABS_WEBHOOK_SECRET: ${ELEVENLABS_WEBHOOK_SECRET:-}
+  ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}   # verification worker fetches call audio via the Conversations API
+  ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-EXAVITQu4vr4xnSDxMaL}
+  INBOUND_CAMPAIGN_ID: ${INBOUND_CAMPAIGN_ID:-}
 
 services:
   postgres:
@@ -88,7 +101,7 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # Seeds the demo clinic dashboard + demo user (demo@callwise.local / demo12345) so the
+  # Seeds the demo clinic dashboard + demo user (demo@callwise.dev / demo12345) so the
   # dashboard's auto-login works and the feed is alive on first load.
   seed:
     build: { context: ./backend }

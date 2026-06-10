@@ -10,6 +10,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 
 from callwise.config import get_settings
@@ -46,6 +47,19 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Callwise Control API", version="0.1.0", lifespan=lifespan)
     setup_tracing(app, service_name="control-api")
+
+    # CORS: the dashboard runs in the browser at a different origin than this API, so every
+    # request is preceded by an OPTIONS preflight. Without this middleware the preflight 405s
+    # and the browser blocks the call ("backend not connected"). Bearer-token auth (no cookies)
+    # lets us safely allow "*" in dev; prod narrows it via CORS_ALLOW_ORIGINS.
+    origins = get_settings().cors_origins_list
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=origins != ["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(campaigns.router, prefix="/api/campaigns", tags=["campaigns"])

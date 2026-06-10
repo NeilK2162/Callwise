@@ -114,7 +114,7 @@ async def start_outbound(
     governed dial through the SAME claim → governed-dispatch path as a campaign dial, so it
     inherits every idempotency/concurrency guarantee."""
     try:
-        phone = normalize_e164(body.phone, "IN")
+        phone = normalize_e164(body.phone, "US")
     except InvalidPhoneNumber as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid phone number") from exc
 

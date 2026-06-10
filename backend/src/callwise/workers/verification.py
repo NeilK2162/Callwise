@@ -39,7 +39,10 @@ from callwise.governors.token_budget import TokenBudgetLimiter
 from callwise.logging import bind_call_context, get_logger
 from callwise.observability.metrics import COST_MICROS, DIALS_FAILED, VERIFICATION_CONFIDENCE
 from callwise.orchestration import enqueue_single_dial
-from callwise.providers.conversation.elevenlabs import session_id_from_payload
+from callwise.providers.conversation.elevenlabs import (
+    caller_id_from_payload,
+    session_id_from_payload,
+)
 from callwise.providers.conversation.factory import get_conversation_provider
 from callwise.providers.llm.factory import get_llm_provider
 from callwise.queue.base import Message
@@ -299,7 +302,7 @@ async def handle_verification(msg: Message) -> None:
                     db,
                     raw,
                     provider="elevenlabs",
-                    from_number=el_stash.get("caller_id"),
+                    from_number=el_stash.get("caller_id") or caller_id_from_payload(raw),
                     provider_call_id=conversation_id,
                 )
         elif sess is None and provider == "livekit" and raw.get("direction") == "inbound":
@@ -386,6 +389,16 @@ async def handle_verification(msg: Message) -> None:
             confidence = max(confidence, 0.95)
         VERIFICATION_CONFIDENCE.observe(confidence)
 
+        # Name the card from what the agent captured (an inbound caller has no pre-set name),
+        # but only when the contact has none yet — so a known outbound contact's name still wins.
+        captured_name = (booking or {}).get("name") or (message or {}).get("name")
+        if captured_name:
+            await db.execute(
+                update(Contact)
+                .where(Contact.id == sess.contact_id, Contact.customer_name.is_(None))
+                .values(customer_name=captured_name)
+            )
+
         # Transcript + recording (idempotent). Prefer the provider summary (free); else the
         # summary from the verify call — never a separate summarization request.
         existing = await db.scalar(select(Transcript).where(Transcript.call_session_id == sess.id))
@@ -403,11 +416,25 @@ async def handle_verification(msg: Message) -> None:
                     s3_key=transcript_key,
                 )
             )
-            if parsed.recording_url:
+
+        # Recording (idempotent, independent of the transcript): use an inline URL if the
+        # provider supplied one, else fetch the audio out-of-band (ElevenLabs) and store it.
+        rec_exists = await db.scalar(
+            select(Recording).where(Recording.call_session_id == sess.id)
+        )
+        if rec_exists is None:
+            rec_key = parsed.recording_url
+            if rec_key is None:
+                audio = await conversation.fetch_recording(parsed.provider_call_id)
+                if audio:
+                    rec_key = await get_object_store().try_upload(
+                        f"recordings/{sess.id}.mp3", audio, content_type="audio/mpeg"
+                    )
+            if rec_key:
                 db.add(
                     Recording(
                         call_session_id=sess.id,
-                        s3_key=parsed.recording_url,
+                        s3_key=rec_key,
                         duration_s=parsed.duration_s,
                         uploaded=True,
                     )

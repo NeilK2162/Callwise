@@ -377,11 +377,11 @@ ingest_jobs       (async CSV import progress)
 
 ### Auth UX
 
-Per PRD §0.7, the dashboard has **no visible login screen**. It auto-logs in as `demo@callwise.local` / `demo12345` via `frontend/lib/api.ts`. If the API is unreachable, it falls back to `frontend/mocks/seed.ts` (offline demo).
+Per PRD §0.7, the dashboard has **no visible login screen**. It auto-logs in as `demo@callwise.dev` / `demo12345` via `frontend/lib/api.ts`. If the API is unreachable, it falls back to `frontend/mocks/seed.ts` (offline demo).
 
 ### Landing page gap
 
-The "Call the agent now" button uses placeholder `+1 (555) 010-2024`. Replace with a real inbound number wired to Exotel/Twilio + ElevenLabs ConvAI for the portfolio demo.
+The "Call the agent now" button uses `+1 385 396 2012` (the live demo line). Wire this number to Twilio + ElevenLabs ConvAI for the portfolio demo.
 
 ---
 
@@ -714,7 +714,7 @@ These are **engineering targets from the PRD**, not yet validated by load tests.
 
 | Item | Value |
 |------|-------|
-| Demo user | `demo@callwise.local` / `demo12345` |
+| Demo user | `demo@callwise.dev` / `demo12345` |
 | Dashboard | http://localhost:3000/dashboard |
 | Control API docs | http://localhost:8000/docs |
 | Webhook ingest docs | http://localhost:8001/docs |

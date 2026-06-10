@@ -17,7 +17,7 @@ export function isDemo(): boolean {
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 // Demo auto-login keeps the dashboard friction-free (PRD §0.7: no login screen) while
 // the backend stays properly authenticated + row-scoped.
-const DEMO_EMAIL = process.env.NEXT_PUBLIC_DEMO_EMAIL ?? "demo@callwise.local";
+const DEMO_EMAIL = process.env.NEXT_PUBLIC_DEMO_EMAIL ?? "demo@callwise.dev";
 const DEMO_PASSWORD = process.env.NEXT_PUBLIC_DEMO_PASSWORD ?? "demo12345";
 
 let _token: string | null = null;

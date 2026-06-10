@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { apptValue, fmtMoney } from "@/lib/money";
 import { useCountUp } from "@/lib/useCountUp";
 import type { Summary } from "@/lib/types";
@@ -16,11 +17,16 @@ function greeting(): string {
 export function MorningBriefing({ summary }: { summary: Summary }) {
   const money = useCountUp(summary.booked * apptValue());
   const calls = useCountUp(summary.calls_today, 700);
+  const [salutation, setSalutation] = useState("Good morning");
+
+  useEffect(() => {
+    setSalutation(greeting());
+  }, []);
 
   return (
     <section className="brief">
       <div className="brief-main">
-        <p className="brief-eyebrow eyebrow">{greeting()}</p>
+        <p className="brief-eyebrow eyebrow">{salutation}</p>
         <p className="brief-line serif">
           While you were away, Callwise answered{" "}
           <b>{Math.round(calls)} {summary.calls_today === 1 ? "call" : "calls"}</b> and booked{" "}

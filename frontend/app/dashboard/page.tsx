@@ -21,7 +21,7 @@ const EMPTY_SUMMARY: Summary = {
   avg_duration_s: 0,
 };
 
-const AGENT_NUMBER = process.env.NEXT_PUBLIC_AGENT_NUMBER ?? "+1 (555) 010-2024";
+const AGENT_NUMBER = process.env.NEXT_PUBLIC_AGENT_NUMBER ?? "+1 385 396 2012";
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
@@ -90,9 +90,18 @@ export default function DashboardPage() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search name, summary, number…"
+                  autoComplete="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  suppressHydrationWarning
                 />
               </label>
-              <button type="button" className="btn-fill" onClick={() => setOutboundOpen(true)}>
+              <button
+                type="button"
+                className="btn-fill"
+                onClick={() => setOutboundOpen(true)}
+                suppressHydrationWarning
+              >
                 <PhoneOutgoing size={16} strokeWidth={2} />
                 Start Outbound Call
               </button>

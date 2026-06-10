@@ -32,7 +32,7 @@ class MockLLMProvider(LLMProvider):
             "outcome": outcome,
             "responder_type": "human",
             "confidence": 0.92,
-            "extracted": {"service": "root canal", "date": "Sat 11AM"},
+            "extracted": {},  # mock can't truthfully extract; real fields come from a real LLM
             "summary": "Customer enquiry handled; outcome recorded.",
         }
 

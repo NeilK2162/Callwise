@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
+
 from callwise.config import Settings
 from callwise.domain.snapshots import CallContextSnapshot
 from callwise.providers.conversation.base import ConversationProvider, ParsedCall
@@ -36,6 +38,18 @@ def session_id_from_payload(raw: dict) -> str | None:
     """Our call_session_id round-trips via the dynamic variable we injected at call start."""
     sid = _dynamic_variables(raw).get("call_session_id")
     return str(sid) if sid else None
+
+
+def caller_id_from_payload(raw: dict) -> str | None:
+    """The caller's phone number, when the call had one. A real PSTN call carries it as the
+    `system__caller_id` dynamic variable; the Twilio-native integration also mirrors it under
+    `metadata.phone_call.external_number`. Web/portal test calls have neither (→ None)."""
+    cid = _dynamic_variables(raw).get("system__caller_id")
+    if cid:
+        return str(cid)
+    phone_call = ((raw.get("data", {}) or {}).get("metadata", {}) or {}).get("phone_call") or {}
+    ext = phone_call.get("external_number")
+    return str(ext) if ext else None
 
 
 class ElevenLabsProvider(ConversationProvider):
@@ -71,8 +85,24 @@ class ElevenLabsProvider(ConversationProvider):
         analysis = data.get("analysis", {}) or {}
         return ParsedCall(
             turns=turns,
-            recording_url=None,  # audio arrives via a separate post_call_audio webhook
+            recording_url=None,  # audio is fetched out-of-band via fetch_recording()
             summary=analysis.get("transcript_summary"),
             provider_call_id=data.get("conversation_id"),
             duration_s=metadata.get("call_duration_secs"),
         )
+
+    async def fetch_recording(self, provider_call_id: str | None) -> bytes | None:
+        """Pull the call audio from the Conversations API (the post-call webhook only flags
+        `has_audio`, it doesn't inline the bytes). Best-effort — never blocks verification."""
+        api_key = self._settings.elevenlabs_api_key
+        if not provider_call_id or not api_key:
+            return None
+        url = f"https://api.elevenlabs.io/v1/convai/conversations/{provider_call_id}/audio"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(url, headers={"xi-api-key": api_key})
+            if resp.status_code == 200 and resp.content:
+                return resp.content
+        except Exception:  # noqa: BLE001 — recording is optional; swallow and move on
+            return None
+        return None

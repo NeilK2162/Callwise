@@ -241,7 +241,7 @@ curl -s http://localhost:8001/api/v2/health
 # Login (seeded demo user)
 curl -s -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"demo@callwise.local","password":"demo12345"}'
+  -d '{"email":"demo@callwise.dev","password":"demo12345"}'
 
 # Reports feed (replace TOKEN)
 curl -s http://localhost:8000/api/reports/feed \
@@ -275,7 +275,7 @@ This is the **primary product test** — same path documented in the root `READM
 2. Open **http://localhost:3000/dashboard**.
 3. Confirm the feed shows seeded query cards (dental clinic demo data).
 4. Click **Start Outbound Call**.
-5. Enter a valid Indian mobile, e.g. `+91 98765 43210`, and a name (optional).
+5. Enter a valid US mobile, e.g. `+1 385 396 2012`, and a name (optional).
 6. Click trigger — status should show success.
 7. Within **~5–15 seconds**, a **new query card** appears at the top of the feed (WebSocket push).
 8. Click the card — detail panel shows summary, outcome tag, and transcript.
@@ -295,7 +295,7 @@ Dashboard POST /api/call_sessions/outbound
 
 | Field | Value |
 |-------|-------|
-| Email | `demo@callwise.local` |
+| Email | `demo@callwise.dev` |
 | Password | `demo12345` |
 
 Created by `callwise.scripts.seed_demo` (runs automatically in compose `seed` service).
@@ -306,14 +306,14 @@ Created by `callwise.scripts.seed_demo` (runs automatically in compose `seed` se
 # 1. Login
 TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"demo@callwise.local","password":"demo12345"}' \
+  -d '{"email":"demo@callwise.dev","password":"demo12345"}' \
   | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
 # 2. Trigger outbound
 curl -s -X POST http://localhost:8000/api/call_sessions/outbound \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"phone":"+919876543210","customer_name":"API Test"}'
+  -d '{"phone":"+13853962012","customer_name":"API Test"}'
 
 # 3. Poll feed until a new card appears (or watch WS)
 curl -s http://localhost:8000/api/reports/feed -H "Authorization: Bearer $TOKEN"

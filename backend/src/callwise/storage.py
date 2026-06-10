@@ -11,6 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 import aioboto3
+from botocore.config import Config
 
 from callwise.config import Settings, get_settings
 from callwise.logging import get_logger
@@ -59,7 +60,13 @@ class ObjectStore:
                 return await stream.read()
 
     async def presigned_get(self, key: str, *, expires: int = 300) -> str:
-        async with self._session.client(**self._kwargs()) as s3:
+        # Sign against the BROWSER-reachable host, not the in-cluster one — the URL is handed to
+        # the dashboard. Signing is offline (no connection), so a different endpoint is safe;
+        # path-style keeps the host stable so the SigV4 host header matches on playback.
+        kwargs = self._kwargs()
+        kwargs["endpoint_url"] = self._s.s3_public_endpoint_url or self._s.s3_endpoint_url
+        kwargs["config"] = Config(signature_version="s3v4", s3={"addressing_style": "path"})
+        async with self._session.client(**kwargs) as s3:
             return await s3.generate_presigned_url(
                 "get_object", Params={"Bucket": self._s.s3_bucket, "Key": key}, ExpiresIn=expires
             )

@@ -1,10 +1,38 @@
 "use client";
 
-import { Download, PhoneIncoming, PhoneOutgoing, Play, X } from "lucide-react";
-import { fmtClock, fmtDuration, outcomeBadgeClass } from "@/lib/format";
+import { Download, PhoneIncoming, PhoneOutgoing, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  fmtClock,
+  fmtDuration,
+  fmtExtractedKey,
+  fmtExtractedValue,
+  outcomeBadgeClass,
+} from "@/lib/format";
+import { getRecordingUrl } from "@/lib/api";
 import { OUTCOME_LABELS, type QueryCard } from "@/lib/types";
 
 export function CardDetail({ card, onClose }: { card: QueryCard | null; onClose: () => void }) {
+  const sessionId = card?.call_session_id;
+  const [recUrl, setRecUrl] = useState<string | null>(null);
+  const [recLoading, setRecLoading] = useState(false);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    let active = true;
+    setRecLoading(true);
+    setRecUrl(null);
+    getRecordingUrl(sessionId).then((url) => {
+      if (active) {
+        setRecUrl(url);
+        setRecLoading(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [sessionId]);
+
   if (!card) return null;
 
   const Icon = card.direction === "inbound" ? PhoneIncoming : PhoneOutgoing;
@@ -61,8 +89,8 @@ export function CardDetail({ card, onClose }: { card: QueryCard | null; onClose:
               <div className="dw-ext">
                 {Object.entries(card.extracted).map(([k, v]) => (
                   <div key={k} className="ext-cell">
-                    <div className="ext-k">{k}</div>
-                    <div className="ext-v">{String(v)}</div>
+                    <div className="ext-k">{fmtExtractedKey(k)}</div>
+                    <div className="ext-v">{fmtExtractedValue(v)}</div>
                   </div>
                 ))}
               </div>
@@ -71,17 +99,13 @@ export function CardDetail({ card, onClose }: { card: QueryCard | null; onClose:
 
           <section>
             <h3 className="dw-h3">Recording</h3>
-            <div className="rec">
-              <button type="button" className="rec-play" aria-label="Play recording">
-                <Play size={16} fill="currentColor" />
-              </button>
-              <div className="rec-bar">
-                <div className="rec-fill">
-                  <span className="rec-knob" />
-                </div>
-              </div>
-              <span className="rec-time">{fmtDuration(card.duration_s)}</span>
-            </div>
+            {recUrl ? (
+              <audio controls preload="none" src={recUrl} style={{ width: "100%" }} />
+            ) : (
+              <p className="dw-sum">
+                {recLoading ? "Loading recording…" : "No recording available for this call."}
+              </p>
+            )}
           </section>
 
           {card.transcript && card.transcript.length > 0 && (

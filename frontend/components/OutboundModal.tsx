@@ -51,7 +51,7 @@ export function OutboundModal({ open, onClose }: { open: boolean; onClose: () =>
               className="ob-input"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="+91 ……"
+              placeholder="+1 …"
             />
             <label className="ob-label" htmlFor="ob-name">
               Name <span className="ob-opt">(optional)</span>

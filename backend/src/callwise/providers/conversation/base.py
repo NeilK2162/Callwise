@@ -40,3 +40,9 @@ class ConversationProvider(ABC):
     @abstractmethod
     def parse_post_call(self, raw: dict) -> ParsedCall:
         """Normalize a provider post-call webhook payload into our turn schema."""
+
+    async def fetch_recording(self, provider_call_id: str | None) -> bytes | None:
+        """Fetch the call audio out-of-band when the webhook doesn't carry it (e.g. ElevenLabs
+        delivers audio via a separate channel). Best-effort: returns None when unavailable.
+        Default is no-op so providers that inline the recording need not override it."""
+        return None

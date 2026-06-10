@@ -5,7 +5,7 @@ transcripts + verifications, so `/api/reports/feed` returns live query cards on 
 
     uv run python -m callwise.scripts.seed_demo
 
-Login: demo@callwise.local / demo12345
+Login: demo@callwise.dev / demo12345
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ log = get_logger(__name__)
 _DEMO = [
     {
         "name": "Priya Sharma",
-        "phone": "+919876544821",
+        "phone": "+13853962012",
         "direction": CallDirection.inbound,
         "outcome": VerificationOutcome.appointment_booked,
         "summary": "Asked about root canal cost and earliest Saturday slot. "
@@ -45,7 +45,7 @@ _DEMO = [
     },
     {
         "name": "Rahul Verma",
-        "phone": "+919812345678",
+        "phone": "+14158675309",
         "direction": CallDirection.inbound,
         "outcome": VerificationOutcome.callback_needed,
         "summary": "Wanted to reschedule a cleaning but preferred slot was full. "
@@ -55,7 +55,7 @@ _DEMO = [
     },
     {
         "name": "Aisha Khan",
-        "phone": "+919900112233",
+        "phone": "+12025551234",
         "direction": CallDirection.outbound,
         "outcome": VerificationOutcome.question_answered,
         "summary": "Appointment reminder for Friday 4 PM. Confirmed attendance.",
@@ -68,13 +68,13 @@ _DEMO = [
 async def seed() -> None:
     configure_logging("INFO", json=False)
     async with get_sessionmaker()() as db:
-        existing = await db.scalar(select(User).where(User.email == "demo@callwise.local"))
+        existing = await db.scalar(select(User).where(User.email == "demo@callwise.dev"))
         if existing is not None:
             log.info("already_seeded", user=str(existing.id))
             return
 
         user = User(
-            email="demo@callwise.local",
+            email="demo@callwise.dev",
             password_hash=hash_password("demo12345"),
         )
         db.add(user)
@@ -135,17 +135,11 @@ async def seed() -> None:
                     result={"outcome": row["outcome"].value},
                 )
             )
-            db.add(
-                Recording(
-                    call_session_id=session_id,
-                    s3_key=f"recordings/{session_id}.mp3",
-                    duration_s=row["duration_s"],
-                    uploaded=True,
-                )
-            )
+            # No Recording row: seed calls are synthetic, there is no real audio to play. The
+            # card shows "No recording available" — honest. Real calls store a fetched recording.
 
         await db.commit()
-        log.info("seeded", user="demo@callwise.local", calls=len(_DEMO))
+        log.info("seeded", user="demo@callwise.dev", calls=len(_DEMO))
 
 
 def main() -> None:

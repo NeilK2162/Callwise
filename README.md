@@ -70,7 +70,7 @@ docker compose run --rm seed                          # demo user + a "Bright Sm
 docker compose up -d control-api webhook-ingest dialer-worker verification-worker reconciler ingest-worker
 ```
 
-Grab the campaign id (login `demo@callwise.local` / `demo12345`, `GET /api/campaigns`) and
+Grab the campaign id (login `demo@callwise.dev` / `demo12345`, `GET /api/campaigns`) and
 set **`INBOUND_CAMPAIGN_ID`** in `.env` so inbound calls are attributed to it, then
 `docker compose up -d verification-worker` again.
 
