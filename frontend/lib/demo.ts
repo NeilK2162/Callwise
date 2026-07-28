@@ -29,7 +29,7 @@ export const DEMO_CARDS: QueryCard[] = [
     transcript: [
       { role: "agent", text: "Bright Smile Dental — automated assistant, the call may be recorded. How can I help?", ts: 0 },
       { role: "customer", text: "How much is a root canal, and do you have anything Saturday?", ts: 5 },
-      { role: "agent", text: "Root canals start at ₹6,000. Saturday I have 11 AM or 2:30 PM — which suits you?", ts: 10 },
+      { role: "agent", text: "Root canals start at $900. Saturday I have 11 AM or 2:30 PM — which suits you?", ts: 10 },
       { role: "customer", text: "11 works.", ts: 15 },
       { role: "agent", text: "Lovely. Your name and email? I'll read it back to be sure.", ts: 17 },
       { role: "customer", text: "Priya Sharma, priya.s@gmail.com.", ts: 22 },

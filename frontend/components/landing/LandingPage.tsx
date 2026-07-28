@@ -95,7 +95,7 @@ export function LandingPage() {
             <Waveform className="wave cp-wave" bars={44} height={54} />
             <div className="cp-trans">
               <div className="bub agent">
-                A root canal starts at ₹6,000. Earliest Saturday is 11&nbsp;AM.
+                A root canal starts at $900. Earliest Saturday is 11&nbsp;AM.
               </div>
               <div className="bub cust">Let&apos;s book that.</div>
               <div className="bub agent">
@@ -150,7 +150,7 @@ export function LandingPage() {
             </h2>
             <p>
               A clinic missing <b>10 calls a week</b> at an average patient value of{" "}
-              <b>₹2,000</b> bleeds roughly <b>₹80,000 every month</b> to voicemail and busy
+              <b>$300</b> bleeds roughly <b>$12,000 every month</b> to voicemail and busy
               signals. Callwise answers every one — and books the appointment or flags the
               callback.
             </p>
@@ -166,21 +166,21 @@ export function LandingPage() {
               </div>
               <div className="row">
                 <span className="k">Avg. patient value</span>
-                <span className="v">₹2,000</span>
+                <span className="v">$300</span>
               </div>
               <div className="row">
                 <span className="k">Lost revenue / month</span>
-                <span className="v bad">₹80,000</span>
+                <span className="v bad">$12,000</span>
               </div>
               <div className="row">
                 <span className="k">Recovered with Callwise</span>
                 <span className="v good" style={{ whiteSpace: "nowrap" }}>
-                  +₹80,000
+                  +$12,000
                 </span>
               </div>
               <div style={{ marginTop: 18 }}>
                 <div className="big" style={{ color: "var(--warm-soft)" }}>
-                  ₹0
+                  $0
                 </div>
                 <div className="cap">missed calls, going forward</div>
               </div>
@@ -328,7 +328,7 @@ export function LandingPage() {
             {[
               {
                 name: "Starter",
-                price: "₹9,999",
+                price: "$199",
                 per: "/mo",
                 feat: false,
                 items: ["1 phone number", "Up to 500 calls / mo", "Dashboard + transcripts"],
@@ -336,7 +336,7 @@ export function LandingPage() {
               },
               {
                 name: "Growth",
-                price: "₹24,999",
+                price: "$499",
                 per: "/mo",
                 feat: true,
                 items: ["3 phone numbers", "Up to 2,500 calls / mo", "Outbound campaigns", "Priority support"],
